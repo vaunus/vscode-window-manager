@@ -194,6 +194,16 @@ enum VSCodeWindows {
         windows(app).contains { !isMinimized($0) }
     }
 
+    // Window server number of the front VS Code window on the current Space.
+    // Covered windows count. Hidden and minimized windows do not.
+    static func frontWindowNumber(_ app: NSRunningApplication) -> Int? {
+        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
+        return list?.first {
+            ($0[kCGWindowOwnerPID as String] as? pid_t) == app.processIdentifier
+                && ($0[kCGWindowLayer as String] as? Int) == 0
+        }?[kCGWindowNumber as String] as? Int
+    }
+
     // Hide VS Code, like ⌘H. All windows go at once (minimize does them one
     // by one), and a click on VS Code in the Dock brings them all back.
     static func hideApp() {

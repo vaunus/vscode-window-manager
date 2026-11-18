@@ -116,6 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let workspace = NSWorkspace.shared.notificationCenter
         workspace.addObserver(self, selector: #selector(appChanged), name: NSWorkspace.didActivateApplicationNotification, object: nil)
+        workspace.addObserver(self, selector: #selector(appChanged), name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
         workspace.addObserver(self, selector: #selector(appsChanged), name: NSWorkspace.didLaunchApplicationNotification, object: nil)
         workspace.addObserver(self, selector: #selector(appsChanged), name: NSWorkspace.didTerminateApplicationNotification, object: nil)
         NotificationCenter.default.addObserver(
@@ -369,25 +370,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .max { $0.1 < $1.1 }?.0
     }
 
-    // Show the bar only while VS Code (or the bar itself) is in front,
-    // and at least one VS Code window is not minimized.
-    func updateVisibility() {
+    // Where the bar windows go. Quick: no calls to VS Code.
+    enum Stacking: Equatable {
+        case off
+        // Over all windows, while VS Code or the bar is in front.
+        case floating
+        // Just above this VS Code window, while another app is in front, so
+        // that app's windows can cover the bar like they cover VS Code.
+        case above(Int)
+    }
+
+    var stacking: Stacking {
         let front = NSWorkspace.shared.frontmostApplication
-        var show = front?.bundleIdentifier == vscodeBundleId
-            || front?.processIdentifier == ProcessInfo.processInfo.processIdentifier
-        if Date() < hideUntil { show = false }
+        if front?.bundleIdentifier == vscodeBundleId
+            || front?.processIdentifier == ProcessInfo.processInfo.processIdentifier { return .floating }
+        if let app = VSCodeWindows.app(), let n = VSCodeWindows.frontWindowNumber(app) { return .above(n) }
+        return .off
+    }
+
+    // Each window goes just above the one before it.
+    func stack(_ windows: [NSPanel], _ stacking: Stacking) {
+        for (i, w) in windows.enumerated() {
+            switch stacking {
+            case .off:
+                if w.isVisible { w.orderOut(nil) }
+            case .floating:
+                if !w.isVisible || w.level != .floating {
+                    w.level = .floating
+                    w.orderFrontRegardless()
+                }
+            case .above(let n):
+                if w.level != .normal { w.level = .normal }
+                w.order(.above, relativeTo: i == 0 ? n : windows[i - 1].windowNumber)
+            }
+        }
+    }
+
+    // Show the bar while VS Code (or the bar itself) is in front, or while a
+    // VS Code window is on screen behind another app. At least one VS Code
+    // window must not be minimized.
+    func updateVisibility() {
+        var stacking = self.stacking
+        if Date() < hideUntil { stacking = .off }
         // Without Accessibility access, keep the bar so it can ask for it.
-        if show, model.trusted, let app = VSCodeWindows.app(), !VSCodeWindows.hasVisibleWindow(app) {
-            show = false
+        if stacking != .off, model.trusted, let app = VSCodeWindows.app(), !VSCodeWindows.hasVisibleWindow(app) {
+            stacking = .off
         }
-        if show {
-            if !panel.isVisible { panel.orderFrontRegardless() }
-            if !corners.isVisible { corners.orderFrontRegardless() }
-        } else {
-            if panel.isVisible { panel.orderOut(nil) }
-            if corners.isVisible { corners.orderOut(nil) }
-        }
-        updateCover(show: show)
+        stack([panel, corners], stacking)
+        // The cover goes just above the corner strip.
+        if case .above = stacking { stacking = .above(corners.windowNumber) }
+        updateCover(stacking)
     }
 
     // The cover goes over the window buttons of the front VS Code window
@@ -395,10 +427,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // by the extension from its theme and settings (shaded while a VS Code
     // modal is open): the focused color, or the other one while something
     // else has focus.
-    func updateCover(show: Bool) {
+    func updateCover(_ stacking: Stacking) {
         var frame: NSRect?
         var color = barNSColor
-        if show, model.trusted, let app = VSCodeWindows.app(),
+        if stacking != .off, model.trusted, let app = VSCodeWindows.app(),
            let ax = VSCodeWindows.frontArranged(app, width: width), let buttons = VSCodeWindows.buttonsFrame(ax) {
             frame = VSCodeWindows.coverFrame(width: width, buttons: buttons)
             let match = row(for: ax)
@@ -414,7 +446,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let frame {
             if cover.backgroundColor != color { cover.backgroundColor = color }
             if cover.frame != frame { cover.setFrame(frame, display: true) }
-            if !cover.isVisible { cover.orderFrontRegardless() }
+            stack([cover], stacking)
         } else if cover.isVisible {
             cover.orderOut(nil)
         }
@@ -427,9 +459,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // VS Code came to the front or went behind: the window under the cover
-    // gains or loses focus.
+    // gains or loses focus. Restack at once, before the slower full update,
+    // so VS Code's own buttons do not show as its windows come to the front.
+    // Also on a Space change.
     @objc func appChanged() {
         coverFocused = vscodeInFront
+        let shown: [NSPanel] = [panel, corners, cover]
+        stack(shown.filter(\.isVisible), stacking)
         recolorCoverNow()
         updateSoon()
     }
