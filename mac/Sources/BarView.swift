@@ -9,24 +9,101 @@ func hexColor(_ hex: Int) -> NSColor {
 }
 
 // Bar background, like VS Code's dark theme.
-let barNSColor = hexColor(0x181818)
+let barHex = 0x181818
+let barNSColor = hexColor(barHex)
 let barColor = Color(nsColor: barNSColor)
-// Selected row, like VS Code's dark theme.
-let selectedColor = Color(nsColor: hexColor(0x363636))
 // Window border, like macOS in dark mode.
 let borderColor = Color(nsColor: hexColor(0x464646))
 // Claude's brand orange, for the working spinner.
 let claudeOrange = Color(nsColor: hexColor(0xD97757))
+// Space between the rows and the sides of the bar.
+let rowInset: CGFloat = 6
+// Radius of the inner corners where the selected row joins the VS Code
+// window. Not more than rowInset, so they stay clear of the other rows.
+let tabJoinRadius: CGFloat = 6
 
 // The bar's shape: rounded on the left, square where it meets VS Code.
 let barShape = UnevenRoundedRectangle(topLeadingRadius: windowRadius, bottomLeadingRadius: windowRadius, style: .circular)
+
+// The selected row's color: the title bar color of its window, focused or
+// not, the same as the box over the window buttons. VS Code uses this color
+// at the window's edges too, so the row looks like part of the window.
+// The bar color for a window with no title bar color.
+func tabColor(_ w: VSWindow, focused: Bool) -> Int {
+    (focused ? w.titleBarColor : w.titleBarInactiveColor ?? w.titleBarColor) ?? barHex
+}
+
+// True for a light color, which needs dark text.
+func isLight(_ hex: Int) -> Bool {
+    let r = Double((hex >> 16) & 0xFF), g = Double((hex >> 8) & 0xFF), b = Double(hex & 0xFF)
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6
+}
 
 @MainActor
 final class BarModel: ObservableObject {
     @Published var rows: [Row] = []
     @Published var activeId: String?
+    // True while the window under the cover has the focus. Then its title
+    // bar shows the focused color.
+    @Published var focused = false
     @Published var trusted = AXIsProcessTrusted()
     @Published var settingsOpen = false
+    let join = TabJoin()
+}
+
+// The part of the selected row that goes over the VS Code window's border.
+// Its own object, so the bar does not redraw when only this changes.
+@MainActor
+final class TabJoin: ObservableObject {
+    // In the bar window (top-left origin): the row's top and bottom, and the
+    // top and bottom of the list, where the row shows. Then the color.
+    struct Span: Equatable {
+        let top: CGFloat
+        let bottom: CGFloat
+        let listTop: CGFloat
+        let listBottom: CGFloat
+        let color: Int
+    }
+
+    @Published var span: Span?
+}
+
+// The selected row's outline: the left side of a rounded rectangle, joined
+// to the VS Code window's border by a rounded inner corner at the top and
+// the bottom. The window starts at the right edge of the rect. The inner
+// corners go outside the rect: above it, below it, and 1 pt to the right,
+// over the window's border. The lines are 1 pt wide, on whole points.
+// fill: the area inside the outline, out to the right side of the border.
+struct TabShape: Shape {
+    var fill = false
+
+    func path(in rect: CGRect) -> Path {
+        let r = tabJoinRadius
+        // The outer corner radius at the center of the line.
+        let c: CGFloat = 5.5
+        // Line centers: the window's border, and the row's left, top and bottom.
+        let e = rect.maxX + 0.5, l = rect.minX + 0.5, t = rect.minY + 0.5, b = rect.maxY - 0.5
+        var p = Path()
+        p.move(to: CGPoint(x: e, y: t - r))
+        p.addArc(tangent1End: CGPoint(x: e, y: t), tangent2End: CGPoint(x: l, y: t), radius: r)
+        p.addArc(tangent1End: CGPoint(x: l, y: t), tangent2End: CGPoint(x: l, y: b), radius: c)
+        p.addArc(tangent1End: CGPoint(x: l, y: b), tangent2End: CGPoint(x: e, y: b), radius: c)
+        p.addArc(tangent1End: CGPoint(x: e, y: b), tangent2End: CGPoint(x: e, y: b + r), radius: r)
+        if fill {
+            p.addLine(to: CGPoint(x: e + 0.5, y: b + r))
+            p.addLine(to: CGPoint(x: e + 0.5, y: t - r))
+            p.closeSubpath()
+        }
+        return p
+    }
+}
+
+// The selected row's frame in the bar window.
+struct TabFrameKey: PreferenceKey {
+    static let defaultValue: CGRect? = nil
+    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
+        value = value ?? nextValue()
+    }
 }
 
 struct BarActions {
@@ -117,7 +194,8 @@ struct ColorGrid: View {
 
 struct RowView: View {
     let row: Row
-    let active: Bool
+    // The tab color (0xRRGGBB) of the selected row. Nil for other rows.
+    let tab: Int?
     let color: Color?
     let editing: Bool
     @Binding var colorName: String?
@@ -138,8 +216,10 @@ struct RowView: View {
             .frame(width: 12, height: 15)
 
             VStack(alignment: .leading, spacing: 1) {
+                // Medium weight on the selected row, so it shows when the window
+                // is the same color as the bar.
                 Text(row.name)
-                    .font(.system(size: 12))
+                    .font(.system(size: 12, weight: tab == nil ? .regular : .medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 // Branch and status lines are always there, so all rows have the same height.
@@ -161,6 +241,8 @@ struct RowView: View {
         .padding(.vertical, 5)
         .padding(.leading, color == nil ? 6 : 9)
         .padding(.trailing, 6)
+        // Dark text on a light tab.
+        .environment(\.colorScheme, tab.map(isLight) == true ? .light : .dark)
         .background { background }
         .contentShape(Rectangle())
         .cursor(editing ? .openHand : .pointingHand)
@@ -176,9 +258,19 @@ struct RowView: View {
             : ([row.name] + row.window.rawFolders + [row.branch ?? "", row.text]).filter { !$0.isEmpty }.joined(separator: "\n"))
     }
 
+    // The selected row is a tab of its VS Code window, like an index tab: out
+    // to the edge of the bar, where it joins the window with rounded inner
+    // corners. A line in the window border color goes around it, so the tab
+    // shows when the window is the same color as the bar. The parts over the
+    // window's border are outside the bar. The corner strip draws them.
     private var background: some View {
         ZStack(alignment: .leading) {
-            RoundedRectangle(cornerRadius: 6).fill(fill)
+            if let tab {
+                TabShape(fill: true).fill(Color(nsColor: hexColor(tab)))
+                TabShape().stroke(borderColor, lineWidth: 1)
+            } else {
+                RoundedRectangle(cornerRadius: 6).fill(color?.opacity(0.12) ?? Color.clear)
+            }
             if let color {
                 RoundedRectangle(cornerRadius: 1.5)
                     .fill(color)
@@ -187,11 +279,7 @@ struct RowView: View {
                     .padding(.leading, 2)
             }
         }
-    }
-
-    private var fill: Color {
-        if active { return selectedColor }
-        return color?.opacity(0.12) ?? Color.clear
+        .padding(.trailing, tab == nil ? 0 : -rowInset)
     }
 }
 
@@ -340,6 +428,8 @@ struct BarView: View {
     @ObservedObject var loginItem: LoginItem
     let actions: BarActions
     @State private var dragging: String?
+    @State private var tabFrame: CGRect?
+    @State private var listFrame = CGRect.zero
 
     var body: some View {
         VStack(spacing: 0) {
@@ -365,10 +455,13 @@ struct BarView: View {
                         Text("No VS Code windows").font(.system(size: 11)).foregroundStyle(Color.secondary)
                     }
                 }
-                .padding(.top, 4)
-                .padding(.horizontal, 6)
+                // Room for the selected row's inner corners at the ends.
+                .padding(.vertical, tabJoinRadius)
+                .padding(.horizontal, rowInset)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { listFrame = $0 }
+            .onPreferenceChange(TabFrameKey.self) { tabFrame = $0 }
 
             if model.settingsOpen {
                 SettingsDrawer(settings: settings, recorder: recorder, loginItem: loginItem, actions: actions)
@@ -401,13 +494,24 @@ struct BarView: View {
             Divider()
             Button("Quit VS Code Window Manager") { NSApp.terminate(nil) }
         }
+        .onChange(of: joinSpan, initial: true) { _, span in model.join.span = span }
+    }
+
+    // Where the selected row meets the VS Code window. Nil while the row and
+    // its inner corners are scrolled out of the list.
+    private var joinSpan: TabJoin.Span? {
+        guard let tabFrame, let row = model.rows.first(where: { $0.id == model.activeId }),
+              tabFrame.maxY + tabJoinRadius > listFrame.minY, tabFrame.minY - tabJoinRadius < listFrame.maxY else { return nil }
+        return TabJoin.Span(top: tabFrame.minY, bottom: tabFrame.maxY, listTop: listFrame.minY, listBottom: listFrame.maxY,
+                            color: tabColor(row.window, focused: model.focused))
     }
 
     @ViewBuilder
     private func rowView(_ row: Row) -> some View {
+        let active = row.id == model.activeId
         let item = RowView(
             row: row,
-            active: row.id == model.activeId,
+            tab: active ? tabColor(row.window, focused: model.focused) : nil,
             color: rowColor(settings.colors[row.key]),
             editing: model.settingsOpen,
             colorName: Binding(
@@ -416,6 +520,13 @@ struct BarView: View {
             ),
             onPick: { actions.pick(row) }
         )
+        .background {
+            if active {
+                GeometryReader { g in
+                    Color.clear.preference(key: TabFrameKey.self, value: g.frame(in: .global))
+                }
+            }
+        }
         if model.settingsOpen {
             item
                 .onDrag {
@@ -503,16 +614,31 @@ struct IconButtonStyle: ButtonStyle {
 }
 
 // Solid bar color in the gaps outside VS Code's rounded left corners.
+// The selected row goes on over the VS Code window's 1 pt border, so it
+// looks like part of the window. Its inner corners join that border.
 struct CornerPieces: View {
     let radius: CGFloat
+    @ObservedObject var join: TabJoin
 
     var body: some View {
-        VStack(spacing: 0) {
-            CornerPiece(top: true).frame(width: radius, height: radius)
-            Spacer(minLength: 0)
-            CornerPiece(top: false).frame(width: radius, height: radius)
+        ZStack(alignment: .topLeading) {
+            VStack(spacing: 0) {
+                CornerPiece(top: true).frame(width: radius, height: radius)
+                Spacer(minLength: 0)
+                CornerPiece(top: false).frame(width: radius, height: radius)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            if let span = join.span {
+                Canvas { ctx, size in
+                    // Only where the row shows in the list, like in the bar.
+                    ctx.clip(to: Path(CGRect(x: 0, y: span.listTop, width: size.width, height: span.listBottom - span.listTop)))
+                    // The row's rect ends at the window's edge, x = 0 here.
+                    let rect = CGRect(x: -100, y: span.top, width: 100, height: span.bottom - span.top)
+                    ctx.fill(TabShape(fill: true).path(in: rect), with: .color(Color(nsColor: hexColor(span.color))))
+                    ctx.stroke(TabShape().path(in: rect), with: .color(borderColor), lineWidth: 1)
+                }
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }
 }
 

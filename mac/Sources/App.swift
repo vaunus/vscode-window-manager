@@ -19,7 +19,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // What the cover shows, so it can be recolored at once without asking
     // VS Code anything. VS Code answers slowly while it redraws for a switch.
     var coverRowId: String?
-    var coverFocused = false
+    // The selected row shows the same title bar color as the cover.
+    var coverFocused: Bool {
+        get { model.focused }
+        set { if model.focused != newValue { model.focused = newValue } }
+    }
     // VS Code windows next to the bar, and their row ids.
     var arrangedRows: [AXKey: String] = [:]
     var ticks = 0
@@ -72,7 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         corners.hasShadow = false
         corners.ignoresMouseEvents = true
         corners.hidesOnDeactivate = false
-        corners.contentView = NSHostingView(rootView: CornerPieces(radius: windowRadius))
+        corners.contentView = NSHostingView(rootView: CornerPieces(radius: windowRadius, join: model.join))
 
         // Solid box over the close, minimize and zoom buttons of the VS Code
         // window. It takes their clicks. The bar has its own buttons.
