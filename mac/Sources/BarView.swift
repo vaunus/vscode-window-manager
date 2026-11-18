@@ -256,6 +256,22 @@ struct SettingsDrawer: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
+                Text("Screen").font(.system(size: 11))
+                // Shows the screen the bar is on now. That is the main screen
+                // while the saved one is not connected.
+                Picker("Screen", selection: Binding(
+                    get: { NSScreen.bar(settings.screen)?.displayUUID ?? "" },
+                    set: { settings.screen = $0 }
+                )) {
+                    ForEach(NSScreen.screens.filter { $0.displayUUID != nil }, id: \.displayUUID) { s in
+                        Text(s.localizedName).tag(s.displayUUID ?? "")
+                    }
+                }
+                .labelsHidden()
+                .controlSize(.small)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
                 Text("Bring to front").font(.system(size: 11))
                 HStack(spacing: 4) {
                     Button(recorder.recording ? "Press keys…" : (settings.hotKey?.label ?? "Set shortcut")) {

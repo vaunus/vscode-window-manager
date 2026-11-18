@@ -6,6 +6,7 @@ A side bar for macOS that lists your open VS Code windows. Click a row to jump t
 
 - One row per VS Code window, with its git branch.
 - Click a row to bring that window to the front, sized to fill the screen next to the bar.
+- Pick the bar's screen in the settings. VS Code windows go to the same screen.
 - Drag rows to reorder them, and give them colors.
 - New VS Code windows go next to the bar as soon as they open.
 - VS Code windows stay next to the bar. If you move or resize one, it goes back when you release the mouse. Full screen still works.

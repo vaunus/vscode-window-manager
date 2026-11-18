@@ -38,6 +38,8 @@ final class Settings: ObservableObject {
     static let defaultHotKey = HotKeySpec(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(cmdKey | optionKey), label: "⌥⌘V")
 
     @Published var width: Double { didSet { UserDefaults.standard.set(width, forKey: "barWidth") } }
+    // UUID of the screen for the bar. nil: the main screen.
+    @Published var screen: String? { didSet { UserDefaults.standard.set(screen, forKey: "screen") } }
     // Row keys (folder paths) in the saved order.
     @Published var order: [String] { didSet { UserDefaults.standard.set(order, forKey: "order") } }
     // Row key -> color name.
@@ -57,6 +59,7 @@ final class Settings: ObservableObject {
         let d = UserDefaults.standard
         let w = d.double(forKey: "barWidth")
         width = w == 0 ? 220 : min(max(w, Self.minWidth), Self.maxWidth)
+        screen = d.string(forKey: "screen")
         order = d.stringArray(forKey: "order") ?? []
         colors = d.dictionary(forKey: "colors") as? [String: String] ?? [:]
         hotKey = d.object(forKey: "hotKey") == nil

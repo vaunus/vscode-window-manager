@@ -132,16 +132,20 @@ enum VSCodeWindows {
         return best
     }
 
-    // Main screen minus the bar, in AX coordinates (top-left origin).
+    // UUID of the screen for the bar, from the settings. nil: the main screen.
+    static var screenId: String?
+
+    // The bar's screen minus the bar, in AX coordinates (top-left origin of
+    // the main screen).
     static func targetFrame(width: CGFloat) -> CGRect? {
-        guard let screen = NSScreen.screens.first else { return nil }
+        guard let screen = NSScreen.bar(screenId), let main = NSScreen.screens.first else { return nil }
         let vf = screen.visibleFrame
-        return CGRect(x: vf.minX + width, y: screen.frame.maxY - vf.maxY, width: vf.width - width, height: vf.height)
+        return CGRect(x: vf.minX + width, y: main.frame.maxY - vf.maxY, width: vf.width - width, height: vf.height)
     }
 
     // Bar frame, in Cocoa coordinates (bottom-left origin).
     static func barFrame(width: CGFloat) -> NSRect {
-        guard let screen = NSScreen.screens.first else { return NSRect(x: 0, y: 0, width: width, height: 600) }
+        guard let screen = NSScreen.bar(screenId) else { return NSRect(x: 0, y: 0, width: width, height: 600) }
         let vf = screen.visibleFrame
         return NSRect(x: vf.minX, y: vf.minY, width: width, height: vf.height)
     }
@@ -155,9 +159,9 @@ enum VSCodeWindows {
     // Box over the window buttons of a window next to the bar. Cocoa coordinates.
     // The 3 pt margin stays clear of the window's rounded corner and border.
     static func coverFrame(width: CGFloat, buttons: CGRect) -> NSRect? {
-        guard let target = targetFrame(width: width), let screen = NSScreen.screens.first else { return nil }
+        guard let target = targetFrame(width: width), let main = NSScreen.screens.first else { return nil }
         let r = buttons.offsetBy(dx: target.minX, dy: target.minY).insetBy(dx: -3, dy: -3)
-        return NSRect(x: r.minX, y: screen.frame.maxY - r.maxY, width: r.width, height: r.height)
+        return NSRect(x: r.minX, y: main.frame.maxY - r.maxY, width: r.width, height: r.height)
     }
 
     // restore: false leaves a minimized window minimized.
@@ -294,6 +298,21 @@ final class WindowWatcher {
         case kAXWindowMovedNotification, kAXWindowResizedNotification: onChanged?(element)
         default: onFocusChanged?(element, name)
         }
+    }
+}
+
+extension NSScreen {
+    // Stays the same after a restart, unlike the display number.
+    var displayUUID: String? {
+        guard let n = deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
+              let uuid = CGDisplayCreateUUIDFromDisplayID(n.uint32Value)?.takeRetainedValue() else { return nil }
+        return CFUUIDCreateString(nil, uuid) as String
+    }
+
+    // The screen with this UUID. If it is not connected, the main screen
+    // (the one with the menu bar).
+    static func bar(_ uuid: String?) -> NSScreen? {
+        screens.first { uuid != nil && $0.displayUUID == uuid } ?? screens.first
     }
 }
 

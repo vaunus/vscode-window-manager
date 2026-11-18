@@ -44,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         allowBackgroundCursor()
         // Shows the system prompt once if access is missing.
         model.trusted = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+        VSCodeWindows.screenId = settings.screen
 
         // Non-activating: a click on a row does not take focus from VS Code,
         // so one click is enough to switch windows.
@@ -100,6 +101,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.layoutPanels(width: CGFloat(w))
             VSCodeWindows.arrangeAll(width: CGFloat(w))
             self?.updateVisibility()
+        }
+        .store(in: &cancellables)
+
+        // Move the bar and the VS Code windows to the new screen.
+        settings.$screen.dropFirst().removeDuplicates().sink { [weak self] id in
+            VSCodeWindows.screenId = id
+            self?.screensChanged()
         }
         .store(in: &cancellables)
 
@@ -430,8 +438,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         watcher.update()
     }
 
+    // Also when a screen is connected or disconnected: the bar can move to
+    // another screen, and the windows go with it.
     @objc func screensChanged() {
         layoutPanels(width: width)
+        arrangeAll()
         updateVisibility()
     }
 }
