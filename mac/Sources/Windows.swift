@@ -204,6 +204,17 @@ enum VSCodeWindows {
         }?[kCGWindowNumber as String] as? Int
     }
 
+    // Close a VS Code window, like a click on its close button (the cover
+    // hides that button). VS Code asks first if files are not saved.
+    // Returns the window. Nil if no window matches.
+    @discardableResult
+    static func close(_ w: VSWindow) -> AXUIElement? {
+        guard let app = app(), let ax = find(app, w),
+              let button = element(attr(ax, kAXCloseButtonAttribute)) else { return nil }
+        AXUIElementPerformAction(button, kAXPressAction as CFString)
+        return ax
+    }
+
     // Hide VS Code, like ⌘H. All windows go at once (minimize does them one
     // by one), and a click on VS Code in the Dock brings them all back.
     static func hideApp() {

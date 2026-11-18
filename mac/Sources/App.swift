@@ -90,6 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let actions = BarActions(
             close: { NSApp.terminate(nil) },
             pick: { [weak self] row in self?.pick(row) },
+            closeWindow: { [weak self] row in self?.closeWindow(row) },
             move: { [weak self] from, to in self?.move(from, to) },
             toggleSettings: { [weak self] in self?.toggleSettings() },
             arrangeAll: { [weak self] in self?.arrangeAll() },
@@ -249,6 +250,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         coverFocused = true
         recolorCover()
         VSCodeWindows.focus(row.window, width: width)
+    }
+
+    // Close a VS Code window. It can stay behind another window. If it is
+    // still open a moment later, it is probably asking to save files, so it
+    // comes to the front to show the question.
+    func closeWindow(_ row: Row) {
+        guard let ax = VSCodeWindows.close(row.window) else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, VSCodeWindows.frame(ax) != nil else { return }
+                self.pick(row)
+            }
+        }
     }
 
     func move(_ from: String, _ to: String) {
