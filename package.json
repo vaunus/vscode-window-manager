@@ -1,0 +1,22 @@
+{
+  "name": "vscode-window-manager",
+  "displayName": "VS Code Window Manager",
+  "description": "Registers each VS Code window for the VS Code Window Manager bar app.",
+  "publisher": "local",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "extensionKind": [
+    "ui"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "scripts": {
+    "test": "node --test"
+  }
+}
