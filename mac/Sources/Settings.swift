@@ -35,6 +35,7 @@ final class Settings: ObservableObject {
     static let minWidth: Double = 120
     static let maxWidth: Double = 300
     static let widthStep: Double = 10
+    static let defaultHotKey = HotKeySpec(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(cmdKey | optionKey), label: "⌥⌘V")
 
     @Published var width: Double { didSet { UserDefaults.standard.set(width, forKey: "barWidth") } }
     // Row keys (folder paths) in the saved order.
@@ -46,7 +47,8 @@ final class Settings: ObservableObject {
             if let hotKey, let data = try? JSONEncoder().encode(hotKey) {
                 UserDefaults.standard.set(data, forKey: "hotKey")
             } else {
-                UserDefaults.standard.removeObject(forKey: "hotKey")
+                // Empty data means "no shortcut", so the default does not come back.
+                UserDefaults.standard.set(Data(), forKey: "hotKey")
             }
         }
     }
@@ -54,10 +56,12 @@ final class Settings: ObservableObject {
     init() {
         let d = UserDefaults.standard
         let w = d.double(forKey: "barWidth")
-        width = w == 0 ? 150 : min(max(w, Self.minWidth), Self.maxWidth)
+        width = w == 0 ? 220 : min(max(w, Self.minWidth), Self.maxWidth)
         order = d.stringArray(forKey: "order") ?? []
         colors = d.dictionary(forKey: "colors") as? [String: String] ?? [:]
-        hotKey = d.data(forKey: "hotKey").flatMap { try? JSONDecoder().decode(HotKeySpec.self, from: $0) }
+        hotKey = d.object(forKey: "hotKey") == nil
+            ? Self.defaultHotKey
+            : d.data(forKey: "hotKey").flatMap { try? JSONDecoder().decode(HotKeySpec.self, from: $0) }
     }
 
     // Rows in the saved order. Rows not in it go last, by name.

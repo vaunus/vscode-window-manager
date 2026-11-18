@@ -13,7 +13,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let recorder = ShortcutRecorder()
     let loginItem = LoginItem()
     let watcher = WindowWatcher()
-    let started = Date()
     // Watches the window files, so a new title bar color shows at once.
     var windowFiles: FolderWatcher?
     var updatePending = false
@@ -139,11 +138,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             self.updateSoon()
         }
-        // VS Code started after the bar: all its windows are new.
-        watcher.onAttach = { [weak self] app in
-            guard let self, let launched = app.launchDate, launched > self.started else { return }
-            self.arrangeAll()
-        }
+        // Once per VS Code run: when the bar opens, or when VS Code starts later.
+        watcher.onAttach = { [weak self] _ in self?.arrangeAll() }
         watcher.update()
     }
 
