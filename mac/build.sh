@@ -18,6 +18,7 @@ mkdir -p "$APP/Contents/MacOS" "$RES/hook" "$RES/lib"
 cp "$ROOT/mac/Info.plist" "$APP/Contents/Info.plist"
 plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "$VERSION" "$APP/Contents/Info.plist"
+cp "$ROOT/mac/AppIcon.icns" "$RES/"
 cp "$ROOT/hook/claude-status.js" "$RES/hook/"
 cp "$ROOT/lib/state.js" "$ROOT/lib/store.js" "$RES/lib/"
 

@@ -8,6 +8,8 @@
 	<string>VSCode Window Manager</string>
 	<key>CFBundleExecutable</key>
 	<string>VSCodeWindowManager</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<!-- build.sh sets both versions from package.json. -->

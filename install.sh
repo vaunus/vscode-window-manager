@@ -57,6 +57,6 @@ cat <<EOF
 Done. Next:
   1. If macOS asks, allow Accessibility for VSCode Window Manager.
      (System Settings > Privacy & Security > Accessibility)
-  2. Reload each open VSCode window: Cmd+Shift+P > "Developer: Reload Window".
-  3. Optional: in the bar, click the gear and turn on "Open at login".
+  2. Quit and re-open VSCode.
+  3. Optional: in the bar settings, turn on "Open at login".
 EOF
