@@ -1,6 +1,10 @@
-# VS Code Window Manager
+# VSCode Window Manager
 
-A side bar for macOS that lists your open VS Code windows. Click a row to jump to that window.
+If you, like me, would prefer to keep using VSCode in an age of agentic AI tooling.
+
+VSCode Window Manager is a side bar app for macOS that gathers your open VSCode windows letting you quickly see their working state and switch between them. Featuring built in support for the Claude VSCode extension.
+
+https://github.com/user-attachments/assets/b3a2af99-814f-4506-a58a-b553eb49095d
 
 > **Live Claude Code status.** Each row shows what Claude Code is doing in that window, as it happens: **working**, **needs you** (a permission prompt or a question), or **done**.
 
@@ -47,11 +51,11 @@ The installer:
 
 Options:
 
-| Variable | Use |
-| --- | --- |
-| `APP_DIR` | Install the app to another folder. Example: `APP_DIR=~/Applications ./install.sh` |
-| `NODE` | Use a specific Node.js for the hook. Example: `NODE=/opt/homebrew/bin/node ./install.sh` |
-| `SIGN_ID` | Use a specific code signing identity. |
+| Variable  | Use                                                                                      |
+| --------- | ---------------------------------------------------------------------------------------- |
+| `APP_DIR` | Install the app to another folder. Example: `APP_DIR=~/Applications ./install.sh`        |
+| `NODE`    | Use a specific Node.js for the hook. Example: `NODE=/opt/homebrew/bin/node ./install.sh` |
+| `SIGN_ID` | Use a specific code signing identity.                                                    |
 
 ## Uninstall
 
