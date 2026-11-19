@@ -28,6 +28,8 @@ struct VSWindow {
     let workspaceFile: String?
     let titleBarColor: Int?            // 0xRRGGBB, focused, from the window's color theme
     let titleBarInactiveColor: Int?    // 0xRRGGBB, not focused
+    // Uncommitted changes, like the number on VSCode's Source Control icon.
+    let changes: Int
     // No folder and no workspace, for example a new window on the Welcome page.
     let empty: Bool
     let startedAt: Date?
@@ -227,6 +229,7 @@ func loadRows(now: Date = Date()) -> [Row] {
             workspaceFile: o["workspaceFile"] as? String,
             titleBarColor: parseHex(o["titleBarColor"] as? String),
             titleBarInactiveColor: parseHex(o["titleBarInactiveColor"] as? String),
+            changes: max(0, (o["changes"] as? NSNumber)?.intValue ?? 0),
             empty: empty,
             startedAt: (o["startedAt"] as? String).flatMap(parseDate),
             focusedAt: (o["focusedAt"] as? String).flatMap(parseDate)

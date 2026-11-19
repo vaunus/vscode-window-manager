@@ -11,6 +11,7 @@ const state = require("./lib/state");
 const store = require("./lib/store");
 const theme = require("./lib/theme");
 const modal = require("./lib/modal");
+const git = require("./lib/git");
 
 // Settings that can change the title bar color.
 const COLOR_SETTINGS = [
@@ -113,6 +114,56 @@ function updateModal() {
   writeOwnWindow();
 }
 
+// The git changes changed: write the window file if the count is new.
+function updateChanges() {
+  if (!ctx || !ctx.git) return;
+  const count = git.countChanges(ctx.git.repositories);
+  if (count === ctx.changes) return;
+  ctx.changes = count;
+  writeOwnWindow();
+}
+
+// The git API gives a new object for a repository each time, so the
+// repositories are kept by their root folder.
+function watchRepo(repo) {
+  const key = repo.rootUri.toString();
+  if (!ctx || ctx.repos.has(key)) return;
+  ctx.repos.set(key, repo.state.onDidChange(updateChanges));
+  updateChanges();
+}
+
+function unwatchRepo(repo) {
+  if (!ctx) return;
+  const key = repo.rootUri.toString();
+  const sub = ctx.repos.get(key);
+  if (sub) sub.dispose();
+  ctx.repos.delete(key);
+  updateChanges();
+}
+
+// Count the uncommitted changes with VSCode's git extension, for the
+// number after the branch in the bar. No count while git is off.
+async function watchGit(context) {
+  try {
+    const ext = vscode.extensions.getExtension("vscode.git");
+    if (!ext) return;
+    const exports = ext.isActive ? ext.exports : await ext.activate();
+    if (!ctx || !exports || !exports.enabled) return;
+    ctx.git = exports.getAPI(1);
+    // VSCode disposes these after deactivate(), when ctx is already null.
+    const repos = ctx.repos;
+    context.subscriptions.push(
+      ctx.git.onDidOpenRepository(watchRepo),
+      ctx.git.onDidCloseRepository(unwatchRepo),
+      { dispose: () => repos.forEach((sub) => sub.dispose()) },
+    );
+    ctx.git.repositories.forEach(watchRepo);
+    updateChanges();
+  } catch (err) {
+    log(`Could not watch git: ${err.message}`);
+  }
+}
+
 // True for an empty window: no folder and no workspace, for example a new
 // window on the Welcome page.
 function isEmptyWindow() {
@@ -143,6 +194,9 @@ function ownRecord() {
     workspaceFile,
     titleBarColor: colors && colors.active,
     titleBarInactiveColor: colors && colors.inactive,
+    // Uncommitted changes, like the number on VSCode's Source Control icon.
+    // Null while git is not ready.
+    changes: ctx.changes,
     startedAt: ctx.startedAt,
     // Empty windows all look the same to the bar. When one gets the focus,
     // the bar takes the focused VSCode window as this one.
@@ -204,6 +258,11 @@ function activate(context) {
     own: null,
     modal: false,
     colors: null,
+    // VSCode's git API, its repositories and their change listeners, and
+    // the count of changes.
+    git: null,
+    repos: new Map(),
+    changes: null,
     startedAt: new Date().toISOString(),
     // When this window got the focus. Null while it does not have it.
     focusedAt: vscode.window.state.focused ? new Date().toISOString() : null,
@@ -233,6 +292,7 @@ function activate(context) {
     vscode.window.onDidChangeWindowState(updateFocus),
   );
   refreshColors();
+  watchGit(context);
   log(`Active. Window id ${ctx.id}. Status dir ${ctx.paths.base}`);
 }
 

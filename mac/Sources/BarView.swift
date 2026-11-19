@@ -16,6 +16,8 @@ let barColor = Color(nsColor: barNSColor)
 let borderColor = Color(nsColor: hexColor(0x464646))
 // Claude's brand orange, for the working spinner.
 let claudeOrange = Color(nsColor: hexColor(0xD97757))
+// VSCode's badge blue, as on the Source Control icon.
+let badgeBlue = Color(nsColor: hexColor(0x0078D4))
 // Space between the rows and the sides of the bar.
 let rowInset: CGFloat = 6
 // Space between two rows.
@@ -168,6 +170,31 @@ struct StatusDot: View {
     }
 }
 
+// The number of uncommitted changes: white on a blue circle, like the
+// number on VSCode's Source Control icon. A pill for two digits or more.
+struct ChangesBadge: View {
+    let count: Int
+
+    var body: some View {
+        Text(label)
+            .font(.system(size: 9).monospacedDigit())
+            .foregroundStyle(Color.white)
+            .padding(.horizontal, 4)
+            .frame(minWidth: 8, minHeight: 8)
+            .background(Capsule().fill(badgeBlue))
+            .fixedSize()
+            // 1 pt above and below the line, so the row keeps its height.
+            .padding(.vertical, -1)
+    }
+
+    // Like VSCode: 1K, 1K+ and so on above 999.
+    private var label: String {
+        guard count > 999 else { return "\(count)" }
+        let k = count / 1000
+        return k > 99 ? "99K+" : count % 1000 == 0 ? "\(k)K" : "\(k)K+"
+    }
+}
+
 struct ColorGrid: View {
     @Binding var selected: String?
     let close: () -> Void
@@ -227,12 +254,10 @@ struct RowView: View {
             }
             .frame(width: 12, height: 15)
 
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .top, spacing: 4) {
-                    // Medium weight on the selected row, so it shows when the
-                    // window is the same color as the bar.
                     Text(row.name)
-                        .font(.system(size: 12, weight: tab == nil ? .regular : .medium))
+                        .font(.system(size: 12))
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer(minLength: 0)
@@ -248,6 +273,9 @@ struct RowView: View {
                     } else {
                         Image(systemName: "arrow.triangle.branch").font(.system(size: 8))
                         Text(row.branch ?? "no repo").lineLimit(1).truncationMode(.middle)
+                        if row.window.changes > 0 {
+                            ChangesBadge(count: row.window.changes).padding(.leading, 1)
+                        }
                     }
                 }
                 .font(.system(size: 10))
