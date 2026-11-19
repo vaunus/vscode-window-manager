@@ -110,6 +110,7 @@ struct BarActions {
     let close: () -> Void
     let pick: (Row) -> Void
     let closeWindow: (Row) -> Void
+    let newWindow: () -> Void
     let move: (String, String) -> Void
     let toggleSettings: () -> Void
     let arrangeAll: () -> Void
@@ -238,8 +239,13 @@ struct RowView: View {
                 }
                 // Branch and status lines are always there, so all rows have the same height.
                 HStack(spacing: 3) {
-                    Image(systemName: "arrow.triangle.branch").font(.system(size: 8))
-                    Text(row.branch ?? "no repo").lineLimit(1).truncationMode(.middle)
+                    if row.window.empty {
+                        Image(systemName: "folder").font(.system(size: 8))
+                        Text("no folder")
+                    } else {
+                        Image(systemName: "arrow.triangle.branch").font(.system(size: 8))
+                        Text(row.branch ?? "no repo").lineLimit(1).truncationMode(.middle)
+                    }
                 }
                 .font(.system(size: 10))
                 .foregroundStyle(Color.secondary)
@@ -478,6 +484,7 @@ struct BarView: View {
                     if model.rows.isEmpty {
                         Text("No VS Code windows").font(.system(size: 11)).foregroundStyle(Color.secondary)
                     }
+                    AddWindowButton(action: actions.newWindow)
                 }
                 // Room for the selected row's inner corners at the ends.
                 .padding(.vertical, tabJoinRadius)
@@ -531,8 +538,10 @@ struct BarView: View {
         let item = RowView(
             row: row,
             tab: active ? tabColor(row.window, focused: model.focused) : nil,
-            color: rowColor(settings.colors[row.key]),
-            editing: model.settingsOpen,
+            color: row.window.empty ? nil : rowColor(settings.colors[row.key]),
+            // An empty window has no saved place or color, so it stays a
+            // normal row while the settings are open.
+            editing: model.settingsOpen && !row.window.empty,
             colorName: Binding(
                 get: { settings.colors[row.key] },
                 set: { settings.colors[row.key] = $0 }
@@ -553,7 +562,7 @@ struct BarView: View {
             Divider()
             BarMenuItems(actions: actions)
         }
-        if model.settingsOpen {
+        if model.settingsOpen && !row.window.empty {
             item
                 .onDrag {
                     dragging = row.key
@@ -565,6 +574,35 @@ struct BarView: View {
         } else {
             item
         }
+    }
+}
+
+// Under the rows: opens a new, empty VS Code window. The plus is in the
+// status dot's column, and the text is in line with the window names.
+struct AddWindowButton: View {
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                Image(systemName: "plus")
+                    .font(.system(size: 10, weight: .semibold))
+                    .frame(width: 12, height: 15)
+                Text("Add window")
+                    .font(.system(size: 12))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(hovering ? Color.primary : Color.secondary)
+            .padding(.vertical, 5)
+            .padding(.horizontal, 6)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(hovering ? 0.06 : 0)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .cursor(.pointingHand)
+        .help("Open a new VS Code window. Then pick a folder on its Welcome page.")
     }
 }
 

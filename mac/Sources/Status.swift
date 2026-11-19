@@ -28,8 +28,14 @@ struct VSWindow {
     let workspaceFile: String?
     let titleBarColor: Int?            // 0xRRGGBB, focused, from the window's color theme
     let titleBarInactiveColor: Int?    // 0xRRGGBB, not focused
+    // No folder and no workspace, for example a new window on the Welcome page.
+    let empty: Bool
+    let startedAt: Date?
+    // Empty windows only: when the window got the focus. Nil while it does not have it.
+    let focusedAt: Date?
 
     // Stable key for saved order and color. Window ids change on restart.
+    // An empty window has no saved order or color.
     var key: String { workspaceFile ?? rawFolders.first ?? id }
 }
 
@@ -203,15 +209,19 @@ func loadRows(now: Date = Date()) -> [Row] {
         let pid = Int32((o["pid"] as? NSNumber)?.intValue ?? 0)
         guard isAlive(pid) else { return nil }
         let raw = (o["folders"] as? [Any] ?? []).compactMap { $0 as? String }
+        let empty = (o["empty"] as? Bool) == true
         return VSWindow(
             id: id,
             pid: pid,
-            name: (o["name"] as? String) ?? id,
+            name: empty ? "Empty window" : (o["name"] as? String) ?? id,
             folders: raw.map(realPath),
             rawFolders: raw,
             workspaceFile: o["workspaceFile"] as? String,
             titleBarColor: parseHex(o["titleBarColor"] as? String),
-            titleBarInactiveColor: parseHex(o["titleBarInactiveColor"] as? String)
+            titleBarInactiveColor: parseHex(o["titleBarInactiveColor"] as? String),
+            empty: empty,
+            startedAt: (o["startedAt"] as? String).flatMap(parseDate),
+            focusedAt: (o["focusedAt"] as? String).flatMap(parseDate)
         )
     }
 

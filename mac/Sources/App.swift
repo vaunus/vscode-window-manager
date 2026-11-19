@@ -26,6 +26,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     // VS Code windows next to the bar, and their row ids.
     var arrangedRows: [AXKey: String] = [:]
+    // Empty VS Code windows and their row ids. Empty windows all look the
+    // same, so the bar learns which is which: see linkEmptyWindow().
+    var emptyRows: [AXKey: String] = [:]
+    // When the focused VS Code window last changed.
+    var focusChangedAt = Date.distantPast
     var ticks = 0
     var panel: BarPanel!
     var corners: NSPanel!
@@ -91,6 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             close: { NSApp.terminate(nil) },
             pick: { [weak self] row in self?.pick(row) },
             closeWindow: { [weak self] row in self?.closeWindow(row) },
+            newWindow: { VSCodeWindows.newWindow() },
             move: { [weak self] from, to in self?.move(from, to) },
             toggleSettings: { [weak self] in self?.toggleSettings() },
             arrangeAll: { [weak self] in self?.arrangeAll() },
@@ -138,6 +144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         watcher.onChanged = { [weak self] ax in self?.windowChanged(ax) }
         watcher.onFocusChanged = { [weak self] ax, name in
             guard let self else { return }
+            self.focusChangedAt = Date()
             if name == kAXFocusedWindowChangedNotification {
                 // A window next to the bar got focus, so it is now in front.
                 // Any other window (a dialog, or one elsewhere) takes the
@@ -249,14 +256,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         coverRowId = row.id
         coverFocused = true
         recolorCover()
-        VSCodeWindows.focus(row.window, width: width)
+        if let ax = window(for: row) {
+            VSCodeWindows.focus(ax, width: width)
+        } else if let app = VSCodeWindows.app(), !row.window.empty {
+            VSCodeWindows.openWithCLI(app, row.window)
+        }
     }
 
     // Close a VS Code window. It can stay behind another window. If it is
     // still open a moment later, it is probably asking to save files, so it
     // comes to the front to show the question.
     func closeWindow(_ row: Row) {
-        guard let ax = VSCodeWindows.close(row.window) else { return }
+        guard let ax = window(for: row), VSCodeWindows.close(ax) else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
             MainActor.assumeIsolated {
                 guard let self, VSCodeWindows.frame(ax) != nil else { return }
@@ -265,8 +276,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // Empty windows have no saved place.
     func move(_ from: String, _ to: String) {
-        settings.move(from, to: to, visible: model.rows.map(\.key))
+        settings.move(from, to: to, visible: model.rows.filter { !$0.window.empty }.map(\.key))
         model.rows = settings.ordered(model.rows)
     }
 
@@ -310,6 +322,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             windowFiles = FolderWatcher(path: statusDir() + "/windows") { [weak self] in self?.windowFilesChanged() }
         }
         model.rows = settings.ordered(loadRows())
+        linkEmptyWindow()
         ticks += 1
         if ticks % 3 == 1 { refreshArrangedRows() }
         updateActive()
@@ -320,6 +333,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // Code modal opens. Recolor the cover at once, then check the rest.
     func windowFilesChanged() {
         model.rows = settings.ordered(loadRows())
+        linkEmptyWindow()
         recolorCoverNow()
         updateSoon()
     }
@@ -380,12 +394,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.activeId = row(for: ax)?.id
     }
 
-    // The row that best matches a VS Code window.
+    // The row of a VS Code window: a known empty window, or the folder row
+    // that best matches it.
     func row(for ax: AXUIElement) -> Row? {
+        if let id = emptyRows[AXKey(ax)], let row = model.rows.first(where: { $0.id == id }) { return row }
+        return folderRow(for: ax)
+    }
+
+    func folderRow(for ax: AXUIElement) -> Row? {
         model.rows
+            .filter { !$0.window.empty }
             .map { ($0, VSCodeWindows.score(ax, $0.window)) }
             .filter { $0.1 > 0 }
             .max { $0.1 < $1.1 }?.0
+    }
+
+    // The VS Code window of a row. For an empty row that the bar does not
+    // know yet: a window that no other row has.
+    func window(for row: Row) -> AXUIElement? {
+        guard let app = VSCodeWindows.app() else { return nil }
+        guard row.window.empty else { return VSCodeWindows.find(app, row.window) }
+        if let key = emptyRows.first(where: { $0.value == row.id })?.key { return key.element }
+        guard let ax = VSCodeWindows.windows(app).first(where: { self.row(for: $0) == nil }) else { return nil }
+        emptyRows[AXKey(ax)] = row.id
+        return ax
+    }
+
+    // The extension in an empty window says when its window gets the focus.
+    // Then the focused VS Code window is that row's window. Only news from
+    // after the last focus change counts, so an old focus does not link the
+    // wrong window. The tolerance is for the order of the two messages.
+    func linkEmptyWindow() {
+        let rows = model.rows
+        // Forget rows and windows that are gone.
+        emptyRows = emptyRows.filter { key, id in
+            rows.contains { $0.id == id && $0.window.empty } && VSCodeWindows.frame(key.element) != nil
+        }
+        guard model.trusted, vscodeInFront,
+              let row = rows.filter({ $0.window.empty && $0.window.focusedAt != nil })
+                  .max(by: { $0.window.focusedAt! < $1.window.focusedAt! }),
+              row.window.focusedAt! > focusChangedAt.addingTimeInterval(-0.5),
+              let app = VSCodeWindows.app(), let ax = VSCodeWindows.focusedWindow(app),
+              VSCodeWindows.isStandard(ax), folderRow(for: ax) == nil else { return }
+        emptyRows = emptyRows.filter { $0.value != row.id }
+        emptyRows[AXKey(ax)] = row.id
     }
 
     // Where the bar windows go. Quick: no calls to VS Code.

@@ -104,24 +104,44 @@ function updateModal() {
   writeOwnWindow();
 }
 
-// This window's record. Null for a window with no local folder.
+// True for an empty window: no folder and no workspace, for example a new
+// window on the Welcome page.
+function isEmptyWindow() {
+  return !(vscode.workspace.workspaceFolders || []).length && !vscode.workspace.workspaceFile;
+}
+
+// This window's record. Null for a window with only remote folders. An
+// empty window has no name. The bar names it.
 function ownRecord() {
   const folders = fileFolders();
   const workspaceFile = workspaceFilePath();
-  if (!folders.length && !workspaceFile) return null;
+  const empty = isEmptyWindow();
+  if (!empty && !folders.length && !workspaceFile) return null;
   let colors = ctx.colors;
   // Under a modal's shade, the title bar is darker.
   if (colors && ctx.modal) colors = theme.shade(colors);
   return {
     id: ctx.id,
     pid: process.pid,
-    name: vscode.workspace.name || path.basename(folders[0] || workspaceFile),
+    name: empty ? null : vscode.workspace.name || path.basename(folders[0] || workspaceFile),
+    empty,
     folders,
     workspaceFile,
     titleBarColor: colors && colors.active,
     titleBarInactiveColor: colors && colors.inactive,
+    startedAt: ctx.startedAt,
+    // Empty windows all look the same to the bar. When one gets the focus,
+    // the bar takes the focused VS Code window as this one.
+    focusedAt: empty ? ctx.focusedAt : null,
     updatedAt: new Date().toISOString(),
   };
+}
+
+// This window got or lost the focus. Only an empty window writes it.
+function updateFocus(windowState) {
+  if (!ctx || windowState.focused === Boolean(ctx.focusedAt)) return;
+  ctx.focusedAt = windowState.focused ? new Date().toISOString() : null;
+  if (ctx.own && ctx.own.empty) writeOwnWindow();
 }
 
 function writeOwnWindow() {
@@ -165,6 +185,9 @@ function activate(context) {
     own: null,
     modal: false,
     colors: null,
+    startedAt: new Date().toISOString(),
+    // When this window got the focus. Null while it does not have it.
+    focusedAt: vscode.window.state.focused ? new Date().toISOString() : null,
   };
 
   try {
@@ -187,6 +210,7 @@ function activate(context) {
     vscode.extensions.onDidChange(refreshColors),
     vscode.window.tabGroups.onDidChangeTabGroups(updateModal),
     vscode.window.tabGroups.onDidChangeTabs(updateModal),
+    vscode.window.onDidChangeWindowState(updateFocus),
   );
   refreshColors();
   log(`Active. Window id ${ctx.id}. Status dir ${ctx.paths.base}`);

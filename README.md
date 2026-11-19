@@ -12,6 +12,7 @@ A side bar for macOS that lists your open VS Code windows. Click a row to jump t
 - VS Code windows stay next to the bar. If you move or resize one, it goes back when you release the mouse. Full screen still works.
 - A global shortcut brings VS Code and the bar to the front.
 - Close and minimize buttons at the top of the bar, in place of VS Code's own. Minimize hides all VS Code windows at once, with no animation. Close quits the bar and leaves VS Code open.
+- **Add window**, under the rows, opens a new VS Code window. It shows at the top of the bar as **Empty window** until you pick a folder on its Welcome page. Each empty window gets its own row.
 - To close a VS Code window, put the mouse on its row and click the **x**, then click the red **Close** button. Or right-click the row and choose **Close Window**. If files are not saved, the window comes to the front and VS Code asks what to do.
 
 ## Requirements

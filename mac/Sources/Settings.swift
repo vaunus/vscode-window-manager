@@ -67,11 +67,15 @@ final class Settings: ObservableObject {
             : d.data(forKey: "hotKey").flatMap { try? JSONDecoder().decode(HotKeySpec.self, from: $0) }
     }
 
-    // Rows in the saved order. Rows not in it go last, by name.
+    // Empty windows first, oldest first. Then the rows in the saved order.
+    // Rows not in it go last, by name.
     func ordered(_ rows: [Row]) -> [Row] {
+        let empty = rows.filter(\.window.empty).sorted {
+            ($0.window.startedAt ?? .distantFuture, $0.id) < ($1.window.startedAt ?? .distantFuture, $1.id)
+        }
         var index: [String: Int] = [:]
         for (i, key) in order.enumerated() where index[key] == nil { index[key] = i }
-        return rows.sorted { a, b in
+        return empty + rows.filter { !$0.window.empty }.sorted { a, b in
             switch (index[a.key], index[b.key]) {
             case let (x?, y?): return x < y
             case (.some, nil): return true

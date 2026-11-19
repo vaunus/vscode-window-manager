@@ -206,13 +206,10 @@ enum VSCodeWindows {
 
     // Close a VS Code window, like a click on its close button (the cover
     // hides that button). VS Code asks first if files are not saved.
-    // Returns the window. Nil if no window matches.
-    @discardableResult
-    static func close(_ w: VSWindow) -> AXUIElement? {
-        guard let app = app(), let ax = find(app, w),
-              let button = element(attr(ax, kAXCloseButtonAttribute)) else { return nil }
-        AXUIElementPerformAction(button, kAXPressAction as CFString)
-        return ax
+    // False if the window has no close button.
+    static func close(_ ax: AXUIElement) -> Bool {
+        guard let button = element(attr(ax, kAXCloseButtonAttribute)) else { return false }
+        return AXUIElementPerformAction(button, kAXPressAction as CFString) == .success
     }
 
     // Hide VS Code, like ⌘H. All windows go at once (minimize does them one
@@ -236,12 +233,7 @@ enum VSCodeWindows {
     }
 
     // Size the window next to the bar and bring it to the front.
-    static func focus(_ w: VSWindow, width: CGFloat) {
-        guard let app = app() else { return }
-        guard let ax = find(app, w) else {
-            openWithCLI(app, w)
-            return
-        }
+    static func focus(_ ax: AXUIElement, width: CGFloat) {
         place(ax, width: width)
         AXUIElementSetAttributeValue(ax, kAXMainAttribute as CFString, kCFBooleanTrue)
         AXUIElementPerformAction(ax, kAXRaiseAction as CFString)
@@ -255,10 +247,25 @@ enum VSCodeWindows {
     // Fallback when no AX window matches: ask VS Code to focus the folder.
     static func openWithCLI(_ app: NSRunningApplication, _ w: VSWindow) {
         guard let bundle = app.bundleURL, let target = w.workspaceFile ?? w.rawFolders.first else { return }
-        let cli = bundle.appendingPathComponent("Contents/Resources/app/bin/code")
+        runCLI(bundle, [target])
+    }
+
+    // Open a new, empty VS Code window. It shows VS Code's Welcome page,
+    // where the user picks a folder. If VS Code is not running, start it:
+    // it then opens its own windows.
+    static func newWindow() {
+        if let app = app(), let bundle = app.bundleURL {
+            runCLI(bundle, ["--new-window"])
+        } else if let bundle = NSWorkspace.shared.urlForApplication(withBundleIdentifier: vscodeBundleId) {
+            NSWorkspace.shared.openApplication(at: bundle, configuration: NSWorkspace.OpenConfiguration())
+        }
+    }
+
+    // VS Code's "code" command, from the app bundle.
+    private static func runCLI(_ bundle: URL, _ arguments: [String]) {
         let p = Process()
-        p.executableURL = cli
-        p.arguments = [target]
+        p.executableURL = bundle.appendingPathComponent("Contents/Resources/app/bin/code")
+        p.arguments = arguments
         try? p.run()
     }
 }
