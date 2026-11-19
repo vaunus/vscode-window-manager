@@ -18,6 +18,8 @@ let borderColor = Color(nsColor: hexColor(0x464646))
 let claudeOrange = Color(nsColor: hexColor(0xD97757))
 // Space between the rows and the sides of the bar.
 let rowInset: CGFloat = 6
+// Space between two rows.
+let rowSpacing: CGFloat = 2
 // Space left of a row's status dot. It has room for the color line.
 let rowLeading: CGFloat = 9
 // Radius of the inner corners where the selected row joins the VS Code
@@ -490,7 +492,7 @@ struct BarView: View {
                 .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34, alignment: .leading)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: rowSpacing) {
                     if !model.trusted {
                         Button("Allow Accessibility") {
                             let url = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
@@ -505,7 +507,10 @@ struct BarView: View {
                     if model.rows.isEmpty {
                         Text("No VS Code windows").font(.system(size: 11)).foregroundStyle(Color.secondary)
                     }
+                    // The space above the button is the same as the space on
+                    // its left, between the bar's edge and the button.
                     AddWindowButton(action: actions.newWindow)
+                        .padding(.top, rowInset - rowSpacing)
                 }
                 // Room for the selected row's inner corners at the ends.
                 .padding(.vertical, tabJoinRadius)

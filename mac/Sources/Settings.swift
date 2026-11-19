@@ -53,7 +53,7 @@ func rowColor(_ name: String?) -> Color? {
 
 @MainActor
 final class Settings: ObservableObject {
-    static let minWidth: Double = 120
+    static let minWidth: Double = 180
     static let maxWidth: Double = 300
     static let widthStep: Double = 10
     static let defaultHotKey = HotKeySpec(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(cmdKey | optionKey), label: "⌥⌘V")

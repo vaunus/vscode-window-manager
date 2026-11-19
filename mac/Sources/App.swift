@@ -261,6 +261,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else if let app = VSCodeWindows.app(), !row.window.empty {
             VSCodeWindows.openWithCLI(app, row.window)
         }
+        restoreCursor()
+    }
+
+    // A VS Code window that comes to the front sets its own cursor, for
+    // example the resize cursor of its edge, though the mouse is on the bar.
+    // The bar sets its cursor again only when the mouse moves. So set it
+    // again a few times while VS Code changes windows (focus() raises the
+    // window again after 0.1 s).
+    func restoreCursor() {
+        for delay in [0.05, 0.15, 0.3, 0.6] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, self.panel.isVisible, self.panel.frame.contains(NSEvent.mouseLocation) else { return }
+                    (CursorState.shared.cursor ?? NSCursor.arrow).set()
+                }
+            }
+        }
     }
 
     // Close a VS Code window. It can stay behind another window. If it is
@@ -268,6 +285,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // comes to the front to show the question.
     func closeWindow(_ row: Row) {
         guard let ax = window(for: row), VSCodeWindows.close(ax) else { return }
+        // Another VS Code window gets the focus.
+        restoreCursor()
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
             MainActor.assumeIsolated {
                 guard let self, VSCodeWindows.frame(ax) != nil else { return }
