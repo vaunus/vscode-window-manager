@@ -3,7 +3,7 @@ import SwiftUI
 
 // Cursor handling. Views that want a cursor say so on hover. The bar root
 // sets the wanted cursor, or the arrow, on each mouse move. This also
-// clears a resize cursor left over from the edge of a VS Code window.
+// clears a resize cursor left over from the edge of a VSCode window.
 @MainActor
 final class CursorState {
     static let shared = CursorState()
@@ -61,7 +61,7 @@ extension View {
     }
 }
 
-// macOS only lets the front app change the cursor. VS Code is usually in
+// macOS only lets the front app change the cursor. VSCode is usually in
 // front while the bar is used, so allow it from the background. There is no
 // public API for this. If the private call is missing, this does nothing.
 func allowBackgroundCursor() {

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Installs VS Code Window Manager: the bar app, the VS Code extension and the
+# Installs VSCode Window Manager: the bar app, the VSCode extension and the
 # Claude Code hooks. Run it again to update.
 #
 # Options (environment variables):
@@ -32,7 +32,7 @@ APP="$APP_DIR/$APP_NAME"
 say "Building the bar app"
 "$ROOT/mac/build.sh" >/dev/null
 
-say "Packaging the VS Code extension"
+say "Packaging the VSCode extension"
 VSIX="$("$ROOT/scripts/package-extension.sh")"
 
 say "Installing the app to $APP_DIR"
@@ -40,11 +40,11 @@ quit_app
 rm -rf "$APP"
 ditto "$ROOT/build/$APP_NAME" "$APP"
 
-say "Installing the VS Code extension"
-# Show VS Code's output only if it fails. It prints Node warnings otherwise.
+say "Installing the VSCode extension"
+# Show VSCode's output only if it fails. It prints Node warnings otherwise.
 if ! out="$("$CODE" --install-extension "$VSIX" --force 2>&1)"; then
   printf '%s\n' "$out" >&2
-  fail "VS Code did not install the extension."
+  fail "VSCode did not install the extension."
 fi
 
 say "Adding the Claude Code hooks"
@@ -55,8 +55,8 @@ open "$APP"
 cat <<EOF
 
 Done. Next:
-  1. If macOS asks, allow Accessibility for VS Code Window Manager.
+  1. If macOS asks, allow Accessibility for VSCode Window Manager.
      (System Settings > Privacy & Security > Accessibility)
-  2. Reload each open VS Code window: Cmd+Shift+P > "Developer: Reload Window".
+  2. Reload each open VSCode window: Cmd+Shift+P > "Developer: Reload Window".
   3. Optional: in the bar, click the gear and turn on "Open at login".
 EOF

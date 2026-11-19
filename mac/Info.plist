@@ -5,7 +5,7 @@
 	<key>CFBundleIdentifier</key>
 	<string>local.vscode-window-manager</string>
 	<key>CFBundleName</key>
-	<string>VS Code Window Manager</string>
+	<string>VSCode Window Manager</string>
 	<key>CFBundleExecutable</key>
 	<string>VSCodeWindowManager</string>
 	<key>CFBundlePackageType</key>

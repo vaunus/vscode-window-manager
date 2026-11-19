@@ -1,5 +1,5 @@
 #!/bin/bash
-# Removes VS Code Window Manager: the bar app, the VS Code extension, the
+# Removes VSCode Window Manager: the bar app, the VSCode extension, the
 # Claude Code hooks, and the saved settings and status files.
 # Other Claude Code hooks and settings stay. Set APP_DIR if you installed
 # the app somewhere other than /Applications or ~/Applications.
@@ -19,7 +19,7 @@ done
 
 CODE="$(find_code)"
 if [ -n "$CODE" ]; then
-  say "Removing the VS Code extension"
+  say "Removing the VSCode extension"
   "$CODE" --uninstall-extension "$EXT_ID" >/dev/null 2>&1 || true
 fi
 
@@ -37,4 +37,4 @@ rm -rf "$STATUS_DIR"
 tccutil reset Accessibility "$BUNDLE_ID" >/dev/null 2>&1 || true
 
 echo
-echo "Done. Reload open VS Code windows to stop the extension in them."
+echo "Done. Reload open VSCode windows to stop the extension in them."

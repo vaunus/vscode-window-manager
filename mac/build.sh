@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds and signs "build/VS Code Window Manager.app".
+# Builds and signs "build/VSCode Window Manager.app".
 # The Claude Code hook (hook/ and lib/) goes inside the app, in Contents/Resources,
 # so the installed hook does not depend on where this repo is.
 # Signs with the first code signing identity, so macOS keeps the Accessibility

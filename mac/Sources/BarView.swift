@@ -8,7 +8,7 @@ func hexColor(_ hex: Int) -> NSColor {
             blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
 }
 
-// Bar background, like VS Code's dark theme.
+// Bar background, like VSCode's dark theme.
 let barHex = 0x181818
 let barNSColor = hexColor(barHex)
 let barColor = Color(nsColor: barNSColor)
@@ -22,15 +22,15 @@ let rowInset: CGFloat = 6
 let rowSpacing: CGFloat = 2
 // Space left of a row's status dot. It has room for the color line.
 let rowLeading: CGFloat = 9
-// Radius of the inner corners where the selected row joins the VS Code
+// Radius of the inner corners where the selected row joins the VSCode
 // window. Not more than rowInset, so they stay clear of the other rows.
 let tabJoinRadius: CGFloat = 6
 
-// The bar's shape: rounded on the left, square where it meets VS Code.
+// The bar's shape: rounded on the left, square where it meets VSCode.
 let barShape = UnevenRoundedRectangle(topLeadingRadius: windowRadius, bottomLeadingRadius: windowRadius, style: .circular)
 
 // The selected row's color: the title bar color of its window, focused or
-// not, the same as the box over the window buttons. VS Code uses this color
+// not, the same as the box over the window buttons. VSCode uses this color
 // at the window's edges too, so the row looks like part of the window.
 // The bar color for a window with no title bar color.
 func tabColor(_ w: VSWindow, focused: Bool) -> Int {
@@ -55,7 +55,7 @@ final class BarModel: ObservableObject {
     let join = TabJoin()
 }
 
-// The part of the selected row that goes over the VS Code window's border.
+// The part of the selected row that goes over the VSCode window's border.
 // Its own object, so the bar does not redraw when only this changes.
 @MainActor
 final class TabJoin: ObservableObject {
@@ -73,7 +73,7 @@ final class TabJoin: ObservableObject {
 }
 
 // The selected row's outline: the left side of a rounded rectangle, joined
-// to the VS Code window's border by a rounded inner corner at the top and
+// to the VSCode window's border by a rounded inner corner at the top and
 // the bottom. The window starts at the right edge of the rect. The inner
 // corners go outside the rect: above it, below it, and 1 pt to the right,
 // over the window's border. The lines are 1 pt wide, on whole points.
@@ -134,7 +134,7 @@ struct Arc: View {
     }
 }
 
-// The arc turns once per second, like VS Code's loading icon.
+// The arc turns once per second, like VSCode's loading icon.
 struct Spinner: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
@@ -303,7 +303,7 @@ struct RowView: View {
         .offset(x: -(7 + 12 / 2) - 16 / 2)
     }
 
-    // The selected row is a tab of its VS Code window, like an index tab: out
+    // The selected row is a tab of its VSCode window, like an index tab: out
     // to the edge of the bar, where it joins the window with rounded inner
     // corners. A line in the window border color goes around it, so the tab
     // shows when the window is the same color as the bar. The parts over the
@@ -505,7 +505,7 @@ struct BarView: View {
                         rowView(row)
                     }
                     if model.rows.isEmpty {
-                        Text("No VS Code windows").font(.system(size: 11)).foregroundStyle(Color.secondary)
+                        Text("No VSCode windows").font(.system(size: 11)).foregroundStyle(Color.secondary)
                     }
                     // The space above the button is the same as the space on
                     // its left, between the bar's edge and the button.
@@ -539,7 +539,7 @@ struct BarView: View {
         .background(barColor)
         .clipShape(barShape)
         // Border on the left, top and bottom. The right edge of the stroke
-        // falls outside the bar, where it joins VS Code.
+        // falls outside the bar, where it joins VSCode.
         .overlay {
             barShape.strokeBorder(borderColor, lineWidth: 1).padding(.trailing, -1)
         }
@@ -549,7 +549,7 @@ struct BarView: View {
         .onChange(of: joinSpan, initial: true) { _, span in model.join.span = span }
     }
 
-    // Where the selected row meets the VS Code window. Nil while the row and
+    // Where the selected row meets the VSCode window. Nil while the row and
     // its inner corners are scrolled out of the list.
     private var joinSpan: TabJoin.Span? {
         guard let tabFrame, let row = model.rows.first(where: { $0.id == model.activeId }),
@@ -603,7 +603,7 @@ struct BarView: View {
     }
 }
 
-// Under the rows: opens a new, empty VS Code window. The plus is in the
+// Under the rows: opens a new, empty VSCode window. The plus is in the
 // status dot's column, and the text is in line with the window names.
 struct AddWindowButton: View {
     let action: () -> Void
@@ -629,7 +629,7 @@ struct AddWindowButton: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .cursor(.pointingHand)
-        .help("Open a new VS Code window. Then pick a folder on its Welcome page.")
+        .help("Open a new VSCode window. Then pick a folder on its Welcome page.")
     }
 }
 
@@ -639,9 +639,9 @@ struct BarMenuItems: View {
 
     var body: some View {
         Button("Arrange All Windows", action: actions.arrangeAll)
-        Button("Hide All VS Code Windows", action: actions.hideAll)
+        Button("Hide All VSCode Windows", action: actions.hideAll)
         Divider()
-        Button("Quit VS Code Window Manager") { NSApp.terminate(nil) }
+        Button("Quit VSCode Window Manager") { NSApp.terminate(nil) }
     }
 }
 
@@ -655,9 +655,9 @@ struct WindowButtons: View {
     var body: some View {
         HStack(spacing: 9) {
             Button(action: close) { light(0xFF5F57, "xmark") }
-                .help("Close the bar. VS Code windows stay open.")
+                .help("Close the bar. VSCode windows stay open.")
             Button(action: minimize) { light(0xFEBC2E, "minus") }
-                .help("Hide all VS Code windows. Click VS Code in the Dock to bring them back.")
+                .help("Hide all VSCode windows. Click VSCode in the Dock to bring them back.")
         }
         .buttonStyle(WindowButtonStyle())
         .onHover { hovering = $0 }
@@ -752,14 +752,14 @@ struct RowCloseButton: View {
                     Text("Close")
                 }
                 .buttonStyle(ConfirmCloseButtonStyle())
-                .help("Click again to close this VS Code window. VS Code asks first if files are not saved.")
+                .help("Click again to close this VSCode window. VSCode asks first if files are not saved.")
             } else {
                 Button { armedAt = Date() } label: {
                     Image(systemName: "xmark")
                 }
                 .buttonStyle(RowIconButtonStyle())
                 .opacity(visible ? 1 : 0)
-                .help("Close this VS Code window")
+                .help("Close this VSCode window")
             }
         }
         .onChange(of: visible) { _, v in
@@ -791,7 +791,7 @@ struct ConfirmCloseButtonStyle: ButtonStyle {
     }
 }
 
-// The x and the color button: small, like the x on a VS Code editor tab.
+// The x and the color button: small, like the x on a VSCode editor tab.
 // The color button is in a row's bottom-left corner.
 // Primary colors, so they show on light and dark tabs.
 struct RowIconButtonStyle: ButtonStyle {
@@ -819,8 +819,8 @@ struct RowIconButtonStyle: ButtonStyle {
     }
 }
 
-// Solid bar color in the gaps outside VS Code's rounded left corners.
-// The selected row goes on over the VS Code window's 1 pt border, so it
+// Solid bar color in the gaps outside VSCode's rounded left corners.
+// The selected row goes on over the VSCode window's 1 pt border, so it
 // looks like part of the window. Its inner corners join that border.
 struct CornerPieces: View {
     let radius: CGFloat
@@ -849,14 +849,14 @@ struct CornerPieces: View {
 }
 
 // A square minus a quarter circle: the gap outside one rounded corner.
-// A line on its outer edge joins the bar's border to VS Code's.
+// A line on its outer edge joins the bar's border to VSCode's.
 struct CornerPiece: View {
     let top: Bool
 
     var body: some View {
         Canvas { ctx, size in
             let square = CGRect(origin: .zero, size: size)
-            // The corner's circle center is inside the VS Code window, to the right.
+            // The corner's circle center is inside the VSCode window, to the right.
             let circle = CGRect(x: 0, y: top ? 0 : -size.height, width: size.width * 2, height: size.height * 2)
             var path = Path(square)
             path.addEllipse(in: circle)

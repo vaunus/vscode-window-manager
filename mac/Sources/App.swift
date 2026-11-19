@@ -17,26 +17,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var windowFiles: FolderWatcher?
     var updatePending = false
     // What the cover shows, so it can be recolored at once without asking
-    // VS Code anything. VS Code answers slowly while it redraws for a switch.
+    // VSCode anything. VSCode answers slowly while it redraws for a switch.
     var coverRowId: String?
     // The selected row shows the same title bar color as the cover.
     var coverFocused: Bool {
         get { model.focused }
         set { if model.focused != newValue { model.focused = newValue } }
     }
-    // VS Code windows next to the bar, and their row ids.
+    // VSCode windows next to the bar, and their row ids.
     var arrangedRows: [AXKey: String] = [:]
-    // Empty VS Code windows and their row ids. Empty windows all look the
+    // Empty VSCode windows and their row ids. Empty windows all look the
     // same, so the bar learns which is which: see linkEmptyWindow().
     var emptyRows: [AXKey: String] = [:]
-    // When the focused VS Code window last changed.
+    // When the focused VSCode window last changed.
     var focusChangedAt = Date.distantPast
     var ticks = 0
     var panel: BarPanel!
     var corners: NSPanel!
     var cover: NSPanel!
     var timer: Timer?
-    // Keeps the bar hidden while VS Code hides.
+    // Keeps the bar hidden while VSCode hides.
     var hideUntil = Date.distantPast
     // Windows that moved or changed size, to put back next to the bar.
     var changed: [AXUIElement] = []
@@ -55,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.trusted = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
         VSCodeWindows.screenId = settings.screen
 
-        // Non-activating: a click on a row does not take focus from VS Code,
+        // Non-activating: a click on a row does not take focus from VSCode,
         // so one click is enough to switch windows.
         panel = BarPanel(contentRect: VSCodeWindows.barFrame(width: width), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.becomesKeyOnlyIfNeeded = true
@@ -71,8 +71,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // No shadow, so no gradient falls on the corner pieces.
         panel.hasShadow = false
 
-        // Clear strip above VS Code with solid pieces in its rounded corner gaps.
-        // Above VS Code, so VS Code's shadow can't tint them. Clicks pass through.
+        // Clear strip above VSCode with solid pieces in its rounded corner gaps.
+        // Above VSCode, so VSCode's shadow can't tint them. Clicks pass through.
         corners = NSPanel(contentRect: VSCodeWindows.cornerFrame(width: width), styleMask: [.borderless], backing: .buffered, defer: false)
         corners.level = .floating
         corners.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
@@ -83,7 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         corners.hidesOnDeactivate = false
         corners.contentView = NSHostingView(rootView: CornerPieces(radius: windowRadius, join: model.join))
 
-        // Solid box over the close, minimize and zoom buttons of the VS Code
+        // Solid box over the close, minimize and zoom buttons of the VSCode
         // window. It takes their clicks. The bar has its own buttons.
         cover = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         cover.level = .floating
@@ -107,7 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.contentView = FirstMouseHostingView(rootView: BarView(
             model: model, settings: settings, recorder: recorder, loginItem: loginItem, actions: actions))
 
-        // Resize the bar and the VS Code windows when the width changes.
+        // Resize the bar and the VSCode windows when the width changes.
         settings.$width.dropFirst().removeDuplicates().sink { [weak self] w in
             self?.layoutPanels(width: CGFloat(w))
             VSCodeWindows.arrangeAll(width: CGFloat(w))
@@ -115,7 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         .store(in: &cancellables)
 
-        // Move the bar and the VS Code windows to the new screen.
+        // Move the bar and the VSCode windows to the new screen.
         settings.$screen.dropFirst().removeDuplicates().sink { [weak self] id in
             VSCodeWindows.screenId = id
             self?.screensChanged()
@@ -159,13 +159,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             self.updateSoon()
         }
-        // Once per VS Code run: when the bar opens, or when VS Code starts later.
+        // Once per VSCode run: when the bar opens, or when VSCode starts later.
         watcher.onAttach = { [weak self] _ in self?.arrangeAll() }
         watcher.update()
     }
 
-    // A new VS Code window goes next to the bar right away. Place it again a
-    // moment later, in case VS Code sets its saved size after it opens.
+    // A new VSCode window goes next to the bar right away. Place it again a
+    // moment later, in case VSCode sets its saved size after it opens.
     func arrangeNew(_ ax: AXUIElement) {
         guard VSCodeWindows.isStandard(ax) else { return }
         VSCodeWindows.place(ax, width: width, restore: false)
@@ -178,7 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // A VS Code window moved or changed size: by a drag, the Window menu,
+    // A VSCode window moved or changed size: by a drag, the Window menu,
     // macOS tiling or a shortcut. It goes back next to the bar.
     func windowChanged(_ ax: AXUIElement) {
         if !changed.contains(where: { CFEqual($0, ax) }) { changed.append(ax) }
@@ -243,7 +243,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // The shortcut: VS Code's active window and the bar come to the front.
+    // The shortcut: VSCode's active window and the bar come to the front.
     func bringToFront() {
         VSCodeWindows.activateApp()
         panel.orderFrontRegardless()
@@ -264,10 +264,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         restoreCursor()
     }
 
-    // A VS Code window that comes to the front sets its own cursor, for
+    // A VSCode window that comes to the front sets its own cursor, for
     // example the resize cursor of its edge, though the mouse is on the bar.
     // The bar sets its cursor again only when the mouse moves. So set it
-    // again a few times while VS Code changes windows (focus() raises the
+    // again a few times while VSCode changes windows (focus() raises the
     // window again after 0.1 s).
     func restoreCursor() {
         for delay in [0.05, 0.15, 0.3, 0.6] {
@@ -280,12 +280,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // Close a VS Code window. It can stay behind another window. If it is
+    // Close a VSCode window. It can stay behind another window. If it is
     // still open a moment later, it is probably asking to save files, so it
     // comes to the front to show the question.
     func closeWindow(_ row: Row) {
         guard let ax = window(for: row), VSCodeWindows.close(ax) else { return }
-        // Another VS Code window gets the focus.
+        // Another VSCode window gets the focus.
         restoreCursor()
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
             MainActor.assumeIsolated {
@@ -305,7 +305,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         VSCodeWindows.arrangeAll(width: width)
     }
 
-    // Hide VS Code. The bar hides with it.
+    // Hide VSCode. The bar hides with it.
     func hideAll() {
         if model.settingsOpen { toggleSettings() }
         hideUntil = Date().addingTimeInterval(1.5)
@@ -319,7 +319,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // Settings need focus (color picker, drag and drop, shortcut keys).
-    // On close, focus goes back to VS Code.
+    // On close, focus goes back to VSCode.
     func toggleSettings() {
         let opening = !model.settingsOpen
         if opening {
@@ -361,7 +361,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.frontmostApplication?.bundleIdentifier == vscodeBundleId
     }
 
-    // The cover's color from what the bar already knows. No calls to VS Code.
+    // The cover's color from what the bar already knows. No calls to VSCode.
     func recolorCover() {
         guard cover.isVisible, let id = coverRowId,
               let w = model.rows.first(where: { $0.id == id })?.window,
@@ -391,7 +391,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // Each VS Code window next to the bar and its row, for quick recolors.
+    // Each VSCode window next to the bar and its row, for quick recolors.
     func refreshArrangedRows() {
         guard model.trusted, let app = VSCodeWindows.app() else {
             arrangedRows = [:]
@@ -404,7 +404,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         arrangedRows = map
     }
 
-    // Highlight the row of the focused VS Code window.
+    // Highlight the row of the focused VSCode window.
     func updateActive() {
         guard model.trusted,
               let app = VSCodeWindows.app(),
@@ -413,7 +413,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.activeId = row(for: ax)?.id
     }
 
-    // The row of a VS Code window: a known empty window, or the folder row
+    // The row of a VSCode window: a known empty window, or the folder row
     // that best matches it.
     func row(for ax: AXUIElement) -> Row? {
         if let id = emptyRows[AXKey(ax)], let row = model.rows.first(where: { $0.id == id }) { return row }
@@ -428,7 +428,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .max { $0.1 < $1.1 }?.0
     }
 
-    // The VS Code window of a row. For an empty row that the bar does not
+    // The VSCode window of a row. For an empty row that the bar does not
     // know yet: a window that no other row has.
     func window(for row: Row) -> AXUIElement? {
         guard let app = VSCodeWindows.app() else { return nil }
@@ -440,7 +440,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // The extension in an empty window says when its window gets the focus.
-    // Then the focused VS Code window is that row's window. Only news from
+    // Then the focused VSCode window is that row's window. Only news from
     // after the last focus change counts, so an old focus does not link the
     // wrong window. The tolerance is for the order of the two messages.
     func linkEmptyWindow() {
@@ -459,13 +459,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         emptyRows[AXKey(ax)] = row.id
     }
 
-    // Where the bar windows go. Quick: no calls to VS Code.
+    // Where the bar windows go. Quick: no calls to VSCode.
     enum Stacking: Equatable {
         case off
-        // Over all windows, while VS Code or the bar is in front.
+        // Over all windows, while VSCode or the bar is in front.
         case floating
-        // Just above this VS Code window, while another app is in front, so
-        // that app's windows can cover the bar like they cover VS Code.
+        // Just above this VSCode window, while another app is in front, so
+        // that app's windows can cover the bar like they cover VSCode.
         case above(Int)
     }
 
@@ -495,8 +495,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // Show the bar while VS Code (or the bar itself) is in front, or while a
-    // VS Code window is on screen behind another app. At least one VS Code
+    // Show the bar while VSCode (or the bar itself) is in front, or while a
+    // VSCode window is on screen behind another app. At least one VSCode
     // window must not be minimized.
     func updateVisibility() {
         var stacking = self.stacking
@@ -511,9 +511,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateCover(stacking)
     }
 
-    // The cover goes over the window buttons of the front VS Code window
+    // The cover goes over the window buttons of the front VSCode window
     // next to the bar. Its color is that window's title bar color, worked out
-    // by the extension from its theme and settings (shaded while a VS Code
+    // by the extension from its theme and settings (shaded while a VSCode
     // modal is open): the focused color, or the other one while something
     // else has focus.
     func updateCover(_ stacking: Stacking) {
@@ -547,9 +547,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         corners.setFrame(VSCodeWindows.cornerFrame(width: w), display: true)
     }
 
-    // VS Code came to the front or went behind: the window under the cover
+    // VSCode came to the front or went behind: the window under the cover
     // gains or loses focus. Restack at once, before the slower full update,
-    // so VS Code's own buttons do not show as its windows come to the front.
+    // so VSCode's own buttons do not show as its windows come to the front.
     // Also on a Space change.
     @objc func appChanged() {
         coverFocused = vscodeInFront

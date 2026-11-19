@@ -1,6 +1,6 @@
 # Shared names and helpers for the build, install and uninstall scripts.
 
-APP_NAME="VS Code Window Manager.app"
+APP_NAME="VSCode Window Manager.app"
 APP_BIN="VSCodeWindowManager"
 BUNDLE_ID="local.vscode-window-manager"
 EXT_ID="local.vscode-window-manager"
@@ -12,8 +12,8 @@ fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 # Absolute path of a file or folder that exists.
 abs_path() { (cd "$(dirname "$1")" && printf '%s/%s\n' "$(pwd)" "$(basename "$1")"); }
 
-# The VS Code command line tool: "code" on PATH, else the one inside VS Code.
-# Prints nothing if VS Code is not found.
+# The VSCode command line tool: "code" on PATH, else the one inside VSCode.
+# Prints nothing if VSCode is not found.
 find_code() {
   if command -v code >/dev/null 2>&1; then
     command -v code

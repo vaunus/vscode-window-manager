@@ -1,51 +1,52 @@
-'use strict';
+"use strict";
 
-// VS Code Window Manager: registers this VS Code window for the bar app.
+// VSCode Window Manager: registers this VSCode window for the bar app.
 // It writes windows/<id>.json with this window's folders and title bar
 // colors. The bar reads it.
 
-const vscode = require('vscode');
-const path = require('path');
+const vscode = require("vscode");
+const path = require("path");
 
-const state = require('./lib/state');
-const store = require('./lib/store');
-const theme = require('./lib/theme');
-const modal = require('./lib/modal');
+const state = require("./lib/state");
+const store = require("./lib/store");
+const theme = require("./lib/theme");
+const modal = require("./lib/modal");
 
 // Settings that can change the title bar color.
 const COLOR_SETTINGS = [
-  'workbench.colorTheme',
-  'workbench.colorCustomizations',
-  'workbench.preferredLightColorTheme',
-  'workbench.preferredDarkColorTheme',
-  'workbench.preferredHighContrastColorTheme',
-  'workbench.preferredHighContrastLightColorTheme',
-  'window.autoDetectColorScheme',
-  'window.titleBarStyle',
+  "workbench.colorTheme",
+  "workbench.colorCustomizations",
+  "workbench.preferredLightColorTheme",
+  "workbench.preferredDarkColorTheme",
+  "workbench.preferredHighContrastColorTheme",
+  "workbench.preferredHighContrastLightColorTheme",
+  "window.autoDetectColorScheme",
+  "window.titleBarStyle",
 ];
 
 // Runtime state for this window. Null when not active.
 let ctx = null;
 
 function log(message) {
-  if (ctx && ctx.output) ctx.output.appendLine(`${new Date().toISOString()} ${message}`);
+  if (ctx && ctx.output)
+    ctx.output.appendLine(`${new Date().toISOString()} ${message}`);
 }
 
 // One id per window. The pid keeps it unique even if sessionId repeats.
 function makeWindowId() {
-  const sid = String(vscode.env.sessionId || '').replace(/[^A-Za-z0-9_-]/g, '');
-  return `${process.pid}-${sid || 'window'}`.slice(0, 200);
+  const sid = String(vscode.env.sessionId || "").replace(/[^A-Za-z0-9_-]/g, "");
+  return `${process.pid}-${sid || "window"}`.slice(0, 200);
 }
 
 function fileFolders() {
   return (vscode.workspace.workspaceFolders || [])
-    .filter((f) => f.uri.scheme === 'file')
+    .filter((f) => f.uri.scheme === "file")
     .map((f) => f.uri.fsPath);
 }
 
 function workspaceFilePath() {
   const wf = vscode.workspace.workspaceFile;
-  return wf && wf.scheme === 'file' ? wf.fsPath : null;
+  return wf && wf.scheme === "file" ? wf.fsPath : null;
 }
 
 // This window's title bar colors, { active, inactive } as "#RRGGBB", or null.
@@ -56,14 +57,18 @@ function titleBarColors() {
       extensions: vscode.extensions.all,
       kind: vscode.window.activeColorTheme.kind,
       settings: {
-        colorTheme: cfg.get('workbench.colorTheme'),
-        colorCustomizations: cfg.get('workbench.colorCustomizations'),
-        preferredLightColorTheme: cfg.get('workbench.preferredLightColorTheme'),
-        preferredDarkColorTheme: cfg.get('workbench.preferredDarkColorTheme'),
-        preferredHighContrastColorTheme: cfg.get('workbench.preferredHighContrastColorTheme'),
-        preferredHighContrastLightColorTheme: cfg.get('workbench.preferredHighContrastLightColorTheme'),
-        autoDetectColorScheme: cfg.get('window.autoDetectColorScheme'),
-        titleBarStyle: cfg.get('window.titleBarStyle'),
+        colorTheme: cfg.get("workbench.colorTheme"),
+        colorCustomizations: cfg.get("workbench.colorCustomizations"),
+        preferredLightColorTheme: cfg.get("workbench.preferredLightColorTheme"),
+        preferredDarkColorTheme: cfg.get("workbench.preferredDarkColorTheme"),
+        preferredHighContrastColorTheme: cfg.get(
+          "workbench.preferredHighContrastColorTheme",
+        ),
+        preferredHighContrastLightColorTheme: cfg.get(
+          "workbench.preferredHighContrastLightColorTheme",
+        ),
+        autoDetectColorScheme: cfg.get("window.autoDetectColorScheme"),
+        titleBarStyle: cfg.get("window.titleBarStyle"),
       },
     });
   } catch (err) {
@@ -85,11 +90,15 @@ function refreshColors() {
 function tabGroups() {
   return vscode.window.tabGroups.all.map((g) => ({
     viewColumn: g.viewColumn,
-    tabs: g.tabs.map((t) => ({ label: t.label, known: t.input !== undefined, active: t.isActive })),
+    tabs: g.tabs.map((t) => ({
+      label: t.label,
+      known: t.input !== undefined,
+      active: t.isActive,
+    })),
   }));
 }
 
-// A VS Code modal (for example Settings) opened or closed: the title bar
+// A VSCode modal (for example Settings) opened or closed: the title bar
 // colors change, so write the window file again.
 function updateModal() {
   if (!ctx) return;
@@ -107,7 +116,10 @@ function updateModal() {
 // True for an empty window: no folder and no workspace, for example a new
 // window on the Welcome page.
 function isEmptyWindow() {
-  return !(vscode.workspace.workspaceFolders || []).length && !vscode.workspace.workspaceFile;
+  return (
+    !(vscode.workspace.workspaceFolders || []).length &&
+    !vscode.workspace.workspaceFile
+  );
 }
 
 // This window's record. Null for a window with only remote folders. An
@@ -123,7 +135,9 @@ function ownRecord() {
   return {
     id: ctx.id,
     pid: process.pid,
-    name: empty ? null : vscode.workspace.name || path.basename(folders[0] || workspaceFile),
+    name: empty
+      ? null
+      : vscode.workspace.name || path.basename(folders[0] || workspaceFile),
     empty,
     folders,
     workspaceFile,
@@ -131,7 +145,7 @@ function ownRecord() {
     titleBarInactiveColor: colors && colors.inactive,
     startedAt: ctx.startedAt,
     // Empty windows all look the same to the bar. When one gets the focus,
-    // the bar takes the focused VS Code window as this one.
+    // the bar takes the focused VSCode window as this one.
     focusedAt: empty ? ctx.focusedAt : null,
     updatedAt: new Date().toISOString(),
   };
@@ -165,9 +179,14 @@ function writeOwnWindow() {
 function cleanUpOwnFiles() {
   try {
     if (ctx.own) {
-      const others = store.readWindows(ctx.paths).filter((w) => w.id !== ctx.id && store.isPidAlive(w.pid));
+      const others = store
+        .readWindows(ctx.paths)
+        .filter((w) => w.id !== ctx.id && store.isPidAlive(w.pid));
       const sessions = store.readSessions(ctx.paths);
-      for (const s of state.sessionsOnlyIn(ctx.id, sessions, [...others, ctx.own])) {
+      for (const s of state.sessionsOnlyIn(ctx.id, sessions, [
+        ...others,
+        ctx.own,
+      ])) {
         store.removeFile(store.sessionFile(ctx.paths, s.sessionId));
       }
     }
@@ -181,7 +200,7 @@ function activate(context) {
   ctx = {
     id: makeWindowId(),
     paths: store.paths(),
-    output: vscode.window.createOutputChannel('VS Code Window Manager'),
+    output: vscode.window.createOutputChannel("VSCode Window Manager"),
     own: null,
     modal: false,
     colors: null,
@@ -204,7 +223,8 @@ function activate(context) {
     vscode.workspace.onDidChangeWorkspaceFolders(refreshColors),
     vscode.window.onDidChangeActiveColorTheme(refreshColors),
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (COLOR_SETTINGS.some((name) => e.affectsConfiguration(name))) refreshColors();
+      if (COLOR_SETTINGS.some((name) => e.affectsConfiguration(name)))
+        refreshColors();
     }),
     // A theme extension was added or removed.
     vscode.extensions.onDidChange(refreshColors),

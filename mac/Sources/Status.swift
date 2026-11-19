@@ -1,6 +1,6 @@
 import Foundation
 
-// Reads the status files written by the hook and the VS Code extension.
+// Reads the status files written by the hook and the VSCode extension.
 // Same rules as lib/state.js: longest folder match, most urgent state wins.
 
 enum ClaudeState: Int, Comparable {
@@ -203,7 +203,7 @@ func parseHex(_ s: String?) -> Int? {
     return Int(s.dropFirst(), radix: 16)
 }
 
-// One row per live VS Code window, sorted by name.
+// One row per live VSCode window, sorted by name.
 func loadRows(now: Date = Date()) -> [Row] {
     let windows: [VSWindow] = readStatusDir("windows").compactMap { id, o in
         let pid = Int32((o["pid"] as? NSNumber)?.intValue ?? 0)

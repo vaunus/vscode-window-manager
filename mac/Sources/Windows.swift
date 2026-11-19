@@ -1,7 +1,7 @@
 import AppKit
 import ApplicationServices
 
-// Finds, moves and raises VS Code windows with the Accessibility API.
+// Finds, moves and raises VSCode windows with the Accessibility API.
 
 let vscodeBundleId = "com.microsoft.VSCode"
 // Corner radius of a macOS window (measured on macOS 26). The bar uses it for
@@ -47,7 +47,7 @@ enum VSCodeWindows {
         (attr(ax, kAXSubroleAttribute) as? String) == kAXStandardWindowSubrole
     }
 
-    // Normal VS Code windows (no dialogs).
+    // Normal VSCode windows (no dialogs).
     static func windows(_ app: NSRunningApplication) -> [AXUIElement] {
         let el = AXUIElementCreateApplication(app.processIdentifier)
         guard let list = attr(el, kAXWindowsAttribute) as? [AXUIElement] else { return [] }
@@ -58,13 +58,13 @@ enum VSCodeWindows {
         element(attr(AXUIElementCreateApplication(app.processIdentifier), kAXFocusedWindowAttribute))
     }
 
-    // The front VS Code window next to the bar. AX lists windows front to back.
+    // The front VSCode window next to the bar. AX lists windows front to back.
     static func frontArranged(_ app: NSRunningApplication, width: CGFloat) -> AXUIElement? {
         windows(app).first { isArranged($0, width: width) }
     }
 
-    // True if VS Code is in front and this window has the keyboard focus.
-    // A dialog or another VS Code window takes the focus away.
+    // True if VSCode is in front and this window has the keyboard focus.
+    // A dialog or another VSCode window takes the focus away.
     static func isFocused(_ ax: AXUIElement, _ app: NSRunningApplication) -> Bool {
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier,
               let focused = focusedWindow(app) else { return false }
@@ -189,12 +189,12 @@ enum VSCodeWindows {
         (attr(ax, "AXFullScreen") as? Bool) == true
     }
 
-    // True if at least one VS Code window is not minimized.
+    // True if at least one VSCode window is not minimized.
     static func hasVisibleWindow(_ app: NSRunningApplication) -> Bool {
         windows(app).contains { !isMinimized($0) }
     }
 
-    // Window server number of the front VS Code window on the current Space.
+    // Window server number of the front VSCode window on the current Space.
     // Covered windows count. Hidden and minimized windows do not.
     static func frontWindowNumber(_ app: NSRunningApplication) -> Int? {
         let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
@@ -204,16 +204,16 @@ enum VSCodeWindows {
         }?[kCGWindowNumber as String] as? Int
     }
 
-    // Close a VS Code window, like a click on its close button (the cover
-    // hides that button). VS Code asks first if files are not saved.
+    // Close a VSCode window, like a click on its close button (the cover
+    // hides that button). VSCode asks first if files are not saved.
     // False if the window has no close button.
     static func close(_ ax: AXUIElement) -> Bool {
         guard let button = element(attr(ax, kAXCloseButtonAttribute)) else { return false }
         return AXUIElementPerformAction(button, kAXPressAction as CFString) == .success
     }
 
-    // Hide VS Code, like ⌘H. All windows go at once (minimize does them one
-    // by one), and a click on VS Code in the Dock brings them all back.
+    // Hide VSCode, like ⌘H. All windows go at once (minimize does them one
+    // by one), and a click on VSCode in the Dock brings them all back.
     static func hideApp() {
         app()?.hide()
     }
@@ -223,7 +223,7 @@ enum VSCodeWindows {
         for ax in windows(app) { place(ax, width: width, restore: false) }
     }
 
-    // Bring VS Code to the front with its last active window.
+    // Bring VSCode to the front with its last active window.
     @discardableResult
     static func activateApp() -> NSRunningApplication? {
         guard let app = app() else { return nil }
@@ -244,14 +244,14 @@ enum VSCodeWindows {
         }
     }
 
-    // Fallback when no AX window matches: ask VS Code to focus the folder.
+    // Fallback when no AX window matches: ask VSCode to focus the folder.
     static func openWithCLI(_ app: NSRunningApplication, _ w: VSWindow) {
         guard let bundle = app.bundleURL, let target = w.workspaceFile ?? w.rawFolders.first else { return }
         runCLI(bundle, [target])
     }
 
-    // Open a new, empty VS Code window. It shows VS Code's Welcome page,
-    // where the user picks a folder. If VS Code is not running, start it:
+    // Open a new, empty VSCode window. It shows VSCode's Welcome page,
+    // where the user picks a folder. If VSCode is not running, start it:
     // it then opens its own windows.
     static func newWindow() {
         if let app = app(), let bundle = app.bundleURL {
@@ -261,7 +261,7 @@ enum VSCodeWindows {
         }
     }
 
-    // VS Code's "code" command, from the app bundle.
+    // VSCode's "code" command, from the app bundle.
     private static func runCLI(_ bundle: URL, _ arguments: [String]) {
         let p = Process()
         p.executableURL = bundle.appendingPathComponent("Contents/Resources/app/bin/code")
@@ -270,9 +270,9 @@ enum VSCodeWindows {
     }
 }
 
-// Tells the bar when VS Code opens, moves or resizes a window, or changes
-// its front window. Watches the VS Code that runs now. Call update() again
-// when VS Code starts or quits.
+// Tells the bar when VSCode opens, moves or resizes a window, or changes
+// its front window. Watches the VSCode that runs now. Call update() again
+// when VSCode starts or quits.
 @MainActor
 final class WindowWatcher {
     var onAttach: ((NSRunningApplication) -> Void)?
@@ -300,7 +300,7 @@ final class WindowWatcher {
         guard created == .success, let obs else { return }
         let el = AXUIElementCreateApplication(current)
         let ref = Unmanaged.passUnretained(self).toOpaque()
-        // Fails while VS Code is still starting. The next update() tries again.
+        // Fails while VSCode is still starting. The next update() tries again.
         guard AXObserverAddNotification(obs, el, kAXWindowCreatedNotification as CFString, ref) == .success else { return }
         AXObserverAddNotification(obs, el, kAXMainWindowChangedNotification as CFString, ref)
         AXObserverAddNotification(obs, el, kAXFocusedWindowChangedNotification as CFString, ref)

@@ -1,7 +1,7 @@
 {
   "name": "vscode-window-manager",
-  "displayName": "VS Code Window Manager",
-  "description": "Registers each VS Code window for the VS Code Window Manager bar app.",
+  "displayName": "VSCode Window Manager",
+  "description": "Registers each VSCode window for the VSCode Window Manager bar app.",
   "publisher": "local",
   "version": "1.0.0",
   "private": true,

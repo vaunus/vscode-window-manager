@@ -1,5 +1,5 @@
 #!/bin/bash
-# Packages the VS Code extension as build/<name>-<version>.vsix and prints its path.
+# Packages the VSCode extension as build/<name>-<version>.vsix and prints its path.
 # A .vsix is a zip with a manifest, so this needs no npm tools.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
