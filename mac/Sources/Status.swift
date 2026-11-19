@@ -53,7 +53,7 @@ struct Row: Identifiable {
     let state: ClaudeState
     let text: String
     let extraCount: Int        // other non-idle sessions, shown as "+N"
-    let quiet: Bool            // working, but no update for a while
+    let quiet: Bool            // no update for a while: working may be stopped, done is old
     let branch: String?
     var id: String { window.id }
     var key: String { window.key }
@@ -138,6 +138,14 @@ let quietAfter: TimeInterval = 5 * 60
 func isQuiet(_ s: Session?, now: Date) -> Bool {
     guard let s, s.state == .working, let t = s.updatedAt else { return false }
     return now.timeIntervalSince(t) > quietAfter
+}
+
+// The "done" tick is green for this long, then grey.
+let freshDoneFor: TimeInterval = 5 * 60
+
+func isOldDone(_ s: Session?, now: Date) -> Bool {
+    guard let s, s.state == .done, let t = s.updatedAt else { return false }
+    return now.timeIntervalSince(t) > freshDoneFor
 }
 
 // A quiet session ranks below a fresh "working" one, above "done".
@@ -265,7 +273,7 @@ func loadRows(now: Date = Date()) -> [Row] {
             state: top?.state ?? .none,
             text: sessionText(top, now: now),
             extraCount: max(0, active.count - 1),
-            quiet: isQuiet(top, now: now),
+            quiet: isQuiet(top, now: now) || isOldDone(top, now: now),
             branch: w.rawFolders.first.flatMap(gitBranch)
         )
     }

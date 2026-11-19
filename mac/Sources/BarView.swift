@@ -160,7 +160,8 @@ struct StatusDot: View {
                 Spinner()
             }
         case .done:
-            Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Color.green)
+            Image(systemName: "checkmark").font(.system(size: 9, weight: .bold))
+                .foregroundStyle(quiet ? Color.secondary : Color.green)
         case .idle, .none:
             Circle().stroke(Color.secondary, lineWidth: 1).frame(width: 9, height: 9)
         }
@@ -214,7 +215,7 @@ struct RowView: View {
     @State private var paletteHovering = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 7) {
+        HStack(alignment: .center, spacing: 7) {
             Group {
                 if editing {
                     Image(systemName: "line.3.horizontal")
