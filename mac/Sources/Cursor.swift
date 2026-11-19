@@ -31,6 +31,13 @@ struct CursorModifier: ViewModifier {
                 }
             }
         }
+        // A new cursor while the mouse is on the view shows at once.
+        .onChange(of: cursor) { _, new in
+            let state = CursorState.shared
+            guard state.owner == token else { return }
+            state.cursor = new
+            new.set()
+        }
     }
 }
 

@@ -15,15 +15,36 @@ struct RowColor: Identifiable {
     let name: String
     let color: Color
     var id: String { name }
+
+    init(name: String, color: Color) {
+        self.name = name
+        self.color = color
+    }
+
+    // A fixed color, the same on light and dark tabs.
+    init(name: String, hex: Int) {
+        self.init(name: name, color: Color(nsColor: hexColor(hex)))
+    }
 }
 
+// In color wheel order, 6 to a line in the color grid. The names are saved,
+// so do not change them. The system colors are the first 12 colors.
 let rowColors: [RowColor] = [
-    RowColor(name: "red", color: .red), RowColor(name: "orange", color: .orange),
-    RowColor(name: "yellow", color: .yellow), RowColor(name: "green", color: .green),
+    RowColor(name: "red", color: .red), RowColor(name: "coral", hex: 0xFF7A59),
+    RowColor(name: "orange", color: .orange), RowColor(name: "gold", hex: 0xE6B422),
+    RowColor(name: "yellow", color: .yellow), RowColor(name: "lime", hex: 0xA3E635),
+
+    RowColor(name: "green", color: .green), RowColor(name: "forest", hex: 0x2E8B57),
     RowColor(name: "mint", color: .mint), RowColor(name: "teal", color: .teal),
-    RowColor(name: "blue", color: .blue), RowColor(name: "indigo", color: .indigo),
-    RowColor(name: "purple", color: .purple), RowColor(name: "pink", color: .pink),
-    RowColor(name: "brown", color: .brown), RowColor(name: "gray", color: .gray),
+    RowColor(name: "cyan", color: .cyan), RowColor(name: "blue", color: .blue),
+
+    RowColor(name: "indigo", color: .indigo), RowColor(name: "violet", hex: 0x8B5CF6),
+    RowColor(name: "lavender", hex: 0xB4A7F5), RowColor(name: "purple", color: .purple),
+    RowColor(name: "magenta", hex: 0xE040D0), RowColor(name: "pink", color: .pink),
+
+    RowColor(name: "rose", hex: 0xFDA4AF), RowColor(name: "brown", color: .brown),
+    RowColor(name: "tan", hex: 0xD8C3A5), RowColor(name: "olive", hex: 0xA3A13A),
+    RowColor(name: "gray", color: .gray), RowColor(name: "white", hex: 0xF2F2F7),
 ]
 
 func rowColor(_ name: String?) -> Color? {

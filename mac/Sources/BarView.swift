@@ -18,6 +18,8 @@ let borderColor = Color(nsColor: hexColor(0x464646))
 let claudeOrange = Color(nsColor: hexColor(0xD97757))
 // Space between the rows and the sides of the bar.
 let rowInset: CGFloat = 6
+// Space left of a row's status dot. It has room for the color line.
+let rowLeading: CGFloat = 9
 // Radius of the inner corners where the selected row joins the VS Code
 // window. Not more than rowInset, so they stay clear of the other rows.
 let tabJoinRadius: CGFloat = 6
@@ -174,7 +176,8 @@ struct ColorGrid: View {
                     Circle()
                         .fill(c.color)
                         .frame(width: 18, height: 18)
-                        .overlay(Circle().stroke(Color.primary, lineWidth: selected == c.name ? 2 : 0))
+                        // Just outside the swatch, so it shows on the white one too.
+                        .overlay(Circle().strokeBorder(Color.primary, lineWidth: selected == c.name ? 1.5 : 0).padding(-3))
                         .contentShape(Circle())
                         .cursor(.pointingHand)
                         .onTapGesture {
@@ -205,6 +208,8 @@ struct RowView: View {
     let onClose: () -> Void
     @State private var picking = false
     @State private var hovering = false
+    // The mouse is on the color button.
+    @State private var paletteHovering = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 7) {
@@ -229,12 +234,7 @@ struct RowView: View {
                         .truncationMode(.middle)
                     Spacer(minLength: 0)
                     if !editing {
-                        // The space right of the x's ink is the same as the
-                        // space above it: about 7 pt, to the tab's top line
-                        // and to the bar's edge. The button goes 3 pt past
-                        // the row, into the space next to the bar's edge.
                         RowCloseButton(visible: hovering, onClose: onClose)
-                            .padding(.trailing, -9)
                     }
                 }
                 // Branch and status lines are always there, so all rows have the same height.
@@ -255,11 +255,17 @@ struct RowView: View {
                     .foregroundStyle(row.state == .needsInput ? Color.blue : Color.secondary)
                     .opacity(row.text.isEmpty ? 0.5 : 1)
                     .lineLimit(1)
+                    // Settings open: the color button in the row's bottom-left
+                    // corner, in line with this line, under the drag handle.
+                    .overlay(alignment: .leading) {
+                        if editing { paletteButton }
+                    }
             }
             Spacer(minLength: 0)
         }
         .padding(.vertical, 5)
-        .padding(.leading, color == nil ? 6 : 9)
+        // Room for the color line on all rows, so the text of all rows lines up.
+        .padding(.leading, rowLeading)
         .padding(.trailing, 6)
         // Dark text on a light tab.
         .environment(\.colorScheme, tab.map(isLight) == true ? .light : .dark)
@@ -268,7 +274,9 @@ struct RowView: View {
         // on the close button.
         .contentShape(RowHitShape())
         .onHover { hovering = $0 }
-        .cursor(editing ? .openHand : .pointingHand)
+        // The drag hand while the settings are open, but not on the color
+        // button. The row's cursor wins over the button's own cursor.
+        .cursor(editing && !paletteHovering ? .openHand : .pointingHand)
         // Settings open: a click picks a color. Closed: a click goes to the window.
         .onTapGesture {
             if editing { picking = true } else { onPick() }
@@ -279,6 +287,18 @@ struct RowView: View {
         .help(editing
             ? "Drag to reorder. Click to set a color."
             : ([row.name] + row.window.rawFolders + [row.branch ?? "", row.text]).filter { !$0.isEmpty }.joined(separator: "\n"))
+    }
+
+    // Its center is on the center of the drag handle's column: 12 pt wide,
+    // then 7 pt to the text. The button is 16 pt wide.
+    private var paletteButton: some View {
+        Button { picking = true } label: {
+            Image(systemName: "paintpalette").font(.system(size: 10))
+        }
+        .buttonStyle(RowIconButtonStyle())
+        .onHover { paletteHovering = $0 }
+        .help("Set a color")
+        .offset(x: -(7 + 12 / 2) - 16 / 2)
     }
 
     // The selected row is a tab of its VS Code window, like an index tab: out
@@ -292,8 +312,9 @@ struct RowView: View {
                 TabShape(fill: true).fill(Color(nsColor: hexColor(tab)))
                 TabShape().stroke(borderColor, lineWidth: 1)
             } else {
-                RoundedRectangle(cornerRadius: 6).fill(color?.opacity(0.12) ?? Color.clear)
+                Color.clear
             }
+            // A row's color is only this line.
             if let color {
                 RoundedRectangle(cornerRadius: 1.5)
                     .fill(color)
@@ -595,7 +616,8 @@ struct AddWindowButton: View {
             }
             .foregroundStyle(hovering ? Color.primary : Color.secondary)
             .padding(.vertical, 5)
-            .padding(.horizontal, 6)
+            .padding(.leading, rowLeading)
+            .padding(.trailing, 6)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(hovering ? 0.06 : 0)))
             .contentShape(Rectangle())
         }
@@ -689,6 +711,22 @@ struct IconButtonStyle: ButtonStyle {
     }
 }
 
+// The place at the right of a row's name for the x. Its place stays, so the
+// name does not move. Not taller than the name, so the row keeps its height. The space
+// right of the icon's ink is the same as the space above it: about 7 pt, to
+// the tab's top line and to the bar's edge. The button goes 3 pt past the
+// row, into the space next to the bar's edge.
+struct RowIconSlot<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        Color.clear
+            .frame(width: 16, height: 14)
+            .overlay(alignment: .trailing) { content }
+            .padding(.trailing, -9)
+    }
+}
+
 // A row's close button, so one click cannot close a window by accident.
 // The x shows while the mouse is over the row. A click on it shows a red
 // "Close" button in its place. A click on that closes the window. It goes
@@ -699,38 +737,34 @@ struct RowCloseButton: View {
     @State private var armedAt: Date?
 
     var body: some View {
-        // The x's place. Its place stays, so the name does not move. The red
-        // button is wider and goes over the end of the name. Not taller than
-        // the name, so the row keeps its height.
-        Color.clear
-            .frame(width: 16, height: 14)
-            .overlay(alignment: .trailing) {
-                if let armedAt {
-                    Button {
-                        // The second click of a double-click is too soon.
-                        if Date().timeIntervalSince(armedAt) > NSEvent.doubleClickInterval { onClose() }
-                    } label: {
-                        Text("Close")
-                    }
-                    .buttonStyle(ConfirmCloseButtonStyle())
-                    .help("Click again to close this VS Code window. VS Code asks first if files are not saved.")
-                } else {
-                    Button { armedAt = Date() } label: {
-                        Image(systemName: "xmark")
-                    }
-                    .buttonStyle(CloseButtonStyle())
-                    .opacity(visible ? 1 : 0)
-                    .help("Close this VS Code window")
+        // The red button is wider than the x and goes over the end of the name.
+        RowIconSlot {
+            if let armedAt {
+                Button {
+                    // The second click of a double-click is too soon.
+                    if Date().timeIntervalSince(armedAt) > NSEvent.doubleClickInterval { onClose() }
+                } label: {
+                    Text("Close")
                 }
+                .buttonStyle(ConfirmCloseButtonStyle())
+                .help("Click again to close this VS Code window. VS Code asks first if files are not saved.")
+            } else {
+                Button { armedAt = Date() } label: {
+                    Image(systemName: "xmark")
+                }
+                .buttonStyle(RowIconButtonStyle())
+                .opacity(visible ? 1 : 0)
+                .help("Close this VS Code window")
             }
-            .onChange(of: visible) { _, v in
-                if !v { armedAt = nil }
-            }
-            .task(id: armedAt) {
-                guard armedAt != nil else { return }
-                try? await Task.sleep(for: .seconds(3))
-                if !Task.isCancelled { armedAt = nil }
-            }
+        }
+        .onChange(of: visible) { _, v in
+            if !v { armedAt = nil }
+        }
+        .task(id: armedAt) {
+            guard armedAt != nil else { return }
+            try? await Task.sleep(for: .seconds(3))
+            if !Task.isCancelled { armedAt = nil }
+        }
     }
 }
 
@@ -752,14 +786,15 @@ struct ConfirmCloseButtonStyle: ButtonStyle {
     }
 }
 
-// The x: small, like on a VS Code editor tab. Primary colors, so it shows
-// on light and dark tabs.
-struct CloseButtonStyle: ButtonStyle {
+// The x and the color button: small, like the x on a VS Code editor tab.
+// The color button is in a row's bottom-left corner.
+// Primary colors, so they show on light and dark tabs.
+struct RowIconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        CloseButtonBody(configuration: configuration)
+        RowIconButtonBody(configuration: configuration)
     }
 
-    private struct CloseButtonBody: View {
+    private struct RowIconButtonBody: View {
         let configuration: ButtonStyleConfiguration
         @State private var hovering = false
 
