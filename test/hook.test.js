@@ -16,6 +16,8 @@ function setup(t) {
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const env = { ...process.env, VSCODE_WINDOW_MANAGER_DIR: dir };
   delete env.CLAUDE_PROJECT_DIR;
+  delete env.CLAUDE_CODE_ENTRYPOINT;
+  delete env.VSCODE_PID;
   const run = (input, extraEnv = {}) => {
     const r = spawnSync(process.execPath, [HOOK], {
       input: typeof input === 'string' ? input : JSON.stringify(input),
@@ -104,4 +106,24 @@ test('a write error is silent', (t) => {
   // A file where the dir should be makes mkdir fail.
   fs.writeFileSync(path.join(h.dir, 'sessions'), '');
   h.run({ session_id: 't1', cwd: '/tmp', hook_event_name: 'Stop' });
+});
+
+test('a Claude tab records the pid of its extension host', (t) => {
+  const h = setup(t);
+  // The hook is a child of this test process. With the test runner as
+  // "VSCode", this test process is the "extension host".
+  const tab = { CLAUDE_CODE_ENTRYPOINT: 'claude-vscode', VSCODE_PID: String(process.ppid) };
+  h.run({ session_id: 't1', cwd: '/tmp', hook_event_name: 'SessionStart', source: 'startup' }, tab);
+  assert.equal(h.read('t1').entrypoint, 'claude-vscode');
+  assert.equal(h.read('t1').hostPid, process.pid);
+  // Later events keep it.
+  h.run({ session_id: 't1', cwd: '/tmp', hook_event_name: 'PermissionRequest', tool_name: 'Bash' }, tab);
+  assert.equal(h.read('t1').hostPid, process.pid);
+});
+
+test('a terminal session records no host pid', (t) => {
+  const h = setup(t);
+  h.run({ session_id: 't1', cwd: '/tmp', hook_event_name: 'Stop' }, { CLAUDE_CODE_ENTRYPOINT: 'cli', VSCODE_PID: String(process.ppid) });
+  assert.equal(h.read('t1').entrypoint, 'cli');
+  assert.equal(h.read('t1').hostPid, null);
 });

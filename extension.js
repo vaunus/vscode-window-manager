@@ -2,9 +2,11 @@
 
 // VSCode Window Manager: registers this VSCode window for the bar app.
 // It writes windows/<id>.json with this window's folders and title bar
-// colors. The bar reads it.
+// colors. The bar reads it. The bar writes requests/<id>.json to show a
+// Claude tab in this window.
 
 const vscode = require("vscode");
+const fs = require("fs");
 const path = require("path");
 
 const state = require("./lib/state");
@@ -22,6 +24,10 @@ const ACTIVE_AT_KEY = "activeAt";
 const ACTIVITY_WRITE_MS = 5000;
 // No activity for this long after the window opens. See ctx.quietUntil.
 const STARTUP_QUIET_MS = 10000;
+// The Claude extension's command to show a session. With the id of a
+// session that has a tab, it brings that tab to the front. The
+// vscode://anthropic.claude-code/open?session=<id> link runs it too.
+const CLAUDE_SHOW_SESSION = "claude-vscode.primaryEditor.open";
 
 // Settings that can change the title bar color.
 const COLOR_SETTINGS = [
@@ -383,6 +389,37 @@ function writeOwnWindow() {
   }
 }
 
+// The bar asks this window to show a Claude tab: you clicked a row whose
+// Claude tab needs you. The request is used once.
+function showRequestedTab() {
+  if (!ctx) return;
+  const file = store.requestFile(ctx.paths, ctx.id);
+  const req = store.readJson(file);
+  if (!req) return;
+  store.removeFile(file);
+  const session = store.isSafeId(req.sessionId)
+    ? store.readJson(store.sessionFile(ctx.paths, req.sessionId))
+    : null;
+  if (!state.canShowTab(req, session, process.pid)) return;
+  vscode.commands.executeCommand(CLAUDE_SHOW_SESSION, req.sessionId).then(undefined, (err) =>
+    log(`Could not show the Claude tab: ${err && err.message}`),
+  );
+}
+
+// All windows watch the same folder, so each one checks for its own file.
+function watchRequests(context) {
+  try {
+    const own = `${ctx.id}.json`;
+    const watcher = fs.watch(ctx.paths.requests, (event, name) => {
+      if (!name || String(name) === own) showRequestedTab();
+    });
+    watcher.on("error", (err) => log(`Request watch failed: ${err.message}`));
+    context.subscriptions.push({ dispose: () => watcher.close() });
+  } catch (err) {
+    log(`Could not watch for requests: ${err.message}`);
+  }
+}
+
 // Remove own window file and sessions no other window contains.
 function cleanUpOwnFiles() {
   try {
@@ -399,6 +436,7 @@ function cleanUpOwnFiles() {
       }
     }
     store.removeFile(store.windowFile(ctx.paths, ctx.id));
+    store.removeFile(store.requestFile(ctx.paths, ctx.id));
   } catch (err) {
     log(`Clean-up failed: ${err.message}`);
   }
@@ -494,6 +532,7 @@ function activate(context) {
   refreshColors();
   updateSleepInfo();
   watchGit(context);
+  watchRequests(context);
   log(`Active. Window id ${ctx.id}. Status dir ${ctx.paths.base}`);
 }
 

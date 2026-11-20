@@ -74,9 +74,52 @@ test('buildSession stores only the allowed fields', () => {
     state: 'needs_input',
     reason: 'permission',
     detail: 'Bash',
+    entrypoint: null,
+    hostPid: null,
     updatedAt: '2026-11-17T10:00:00.000Z',
   });
   assert.ok(!JSON.stringify(rec).includes('secret'));
+});
+
+test('buildSession stores the entrypoint and the host pid', () => {
+  const ch = write('idle');
+  const rec = s.buildSession(base, ch, undefined, undefined, { entrypoint: 'claude-vscode', hostPid: 4321 });
+  assert.equal(rec.entrypoint, 'claude-vscode');
+  assert.equal(rec.hostPid, 4321);
+  for (const bad of [0, -1, 1.5, '4321', null]) {
+    assert.equal(s.buildSession(base, ch, undefined, undefined, { hostPid: bad }).hostPid, null, String(bad));
+  }
+});
+
+test('findHostPid walks up to the child of the main process', () => {
+  // hook 50 -> sh 40 -> claude 30 -> extension host 20 -> VSCode 10 -> launchd 1
+  const table = s.parsePsTable('   50    40\n   40    30\n   30    20\n   20    10\n   10     1\nbad line\n');
+  assert.equal(table.get(30), 20);
+  assert.equal(s.findHostPid(table, 50, 10), 20);
+  assert.equal(s.findHostPid(table, 30, 10), 20);
+  // A terminal session outside VSCode: no ancestor is VSCode.
+  assert.equal(s.findHostPid(table, 50, 99), null);
+  assert.equal(s.findHostPid(table, 77, 10), null);
+  // A loop in the table ends.
+  assert.equal(s.findHostPid(new Map([[5, 6], [6, 5]]), 5, 10), null);
+});
+
+test('canShowTab only allows a fresh request for a tab in this window', () => {
+  const now = Date.parse('2026-11-20T10:00:00.000Z');
+  const tab = { sessionId: 'abc', entrypoint: 'claude-vscode', hostPid: 20 };
+  const req = { sessionId: 'abc', at: '2026-11-20T09:59:58.000Z' };
+  assert.equal(s.canShowTab(req, tab, 20, now), true);
+  // Another window.
+  assert.equal(s.canShowTab(req, tab, 21, now), false);
+  // A terminal session, or a session from an old hook.
+  assert.equal(s.canShowTab(req, { ...tab, entrypoint: 'cli' }, 20, now), false);
+  assert.equal(s.canShowTab(req, { ...tab, hostPid: null }, 20, now), false);
+  // Another session, an old or bad time, missing parts.
+  assert.equal(s.canShowTab({ ...req, sessionId: 'xyz' }, tab, 20, now), false);
+  assert.equal(s.canShowTab({ ...req, at: '2026-11-20T09:59:00.000Z' }, tab, 20, now), false);
+  assert.equal(s.canShowTab({ ...req, at: 'soon' }, tab, 20, now), false);
+  assert.equal(s.canShowTab(null, tab, 20, now), false);
+  assert.equal(s.canShowTab(req, null, 20, now), false);
 });
 
 test('buildSession falls back to cwd, and needs a path', () => {
@@ -128,6 +171,19 @@ test('sessionsOnlyIn skips sessions another window also contains', () => {
   assert.deepEqual(s.sessionsOnlyIn('other', sessions, windows, id).map((x) => x.sessionId), ['2', '4']);
   assert.deepEqual(s.sessionsOnlyIn('outer', sessions, windows, id).map((x) => x.sessionId), ['3']);
   assert.deepEqual(s.sessionsOnlyIn('missing', sessions, windows, id), []);
+});
+
+test('sessionsOnlyIn gives a Claude tab to the window that runs it', () => {
+  const windows = [
+    { ...win('outer', ['/w/mono']), pid: 10 },
+    { ...win('inner', ['/w/mono/pkg']), pid: 20 },
+  ];
+  // Runs in "outer", though "inner" has the longer folder match.
+  const tab = { sessionId: '1', projectDir: '/w/mono/pkg', hostPid: 10 };
+  // Its window is gone: the folder rule applies, and both windows hold it.
+  const orphan = { sessionId: '2', projectDir: '/w/mono/pkg', hostPid: 99 };
+  assert.deepEqual(s.sessionsOnlyIn('outer', [tab, orphan], windows, id).map((x) => x.sessionId), ['1']);
+  assert.deepEqual(s.sessionsOnlyIn('inner', [tab, orphan], windows, id), []);
 });
 
 test('sessionsOnlyIn resolves symlinks with realpath', () => {

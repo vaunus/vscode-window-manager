@@ -280,6 +280,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else if let app = VSCodeWindows.app(), !row.window.empty {
             VSCodeWindows.openWithCLI(app, row.window)
         }
+        // A Claude tab waits for you: its window brings that tab to the front.
+        if row.state == .needsInput, let session = row.tabSession {
+            requestTab(session, in: row.window)
+        }
         restoreCursor()
     }
 

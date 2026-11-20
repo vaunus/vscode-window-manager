@@ -73,7 +73,8 @@ This removes the app, the VSCode extension, the status hooks, and the saved sett
 
 - The VSCode extension writes each window's folders to `~/.claude/window-status/windows/`, with when something last changed in it and if a terminal command runs. It never stores file contents or commands.
 - A Claude Code hook writes each session's state to `~/.claude/window-status/sessions/`. It stores session ids, folder paths and state only. It never stores prompts or tool input.
-- The bar reads both folders once per second and matches each session to the window that holds its folder.
+- The bar reads both folders once per second. It matches each Claude tab to the window that runs it, and each other session to the window that holds its folder.
+- When you click a "needs you" row of a Claude tab, the bar writes a request to `~/.claude/window-status/requests/`. The extension in that window brings the tab to the front.
 
 ## Development
 

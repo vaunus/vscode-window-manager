@@ -24,7 +24,12 @@ test('paths uses VSCODE_WINDOW_MANAGER_DIR when set', (t) => {
     else process.env.VSCODE_WINDOW_MANAGER_DIR = old;
   });
   process.env.VSCODE_WINDOW_MANAGER_DIR = '/x/status';
-  assert.deepEqual(store.paths(), { base: '/x/status', sessions: '/x/status/sessions', windows: '/x/status/windows' });
+  assert.deepEqual(store.paths(), {
+    base: '/x/status',
+    sessions: '/x/status/sessions',
+    windows: '/x/status/windows',
+    requests: '/x/status/requests',
+  });
   delete process.env.VSCODE_WINDOW_MANAGER_DIR;
   assert.equal(store.paths().base, path.join(os.homedir(), '.claude', 'window-status'));
 });
@@ -36,6 +41,7 @@ test('isSafeId blocks path tricks', () => {
     assert.equal(store.isSafeId(bad), false, String(bad));
   }
   assert.throws(() => store.sessionFile(store.paths('/x'), '../evil'));
+  assert.throws(() => store.requestFile(store.paths('/x'), '../evil'));
 });
 
 test('writeJsonAtomic writes 0600 and leaves no temp file', (t) => {
@@ -93,9 +99,12 @@ test('pruneDeadWindows deletes windows with a dead pid', (t) => {
   store.writeJsonAtomic(store.windowFile(p, 'live'), { pid: 100 });
   store.writeJsonAtomic(store.windowFile(p, 'dead'), { pid: 200 });
   store.writeJsonAtomic(store.windowFile(p, 'nopid'), {});
+  store.writeJsonAtomic(store.requestFile(p, 'live'), {});
+  store.writeJsonAtomic(store.requestFile(p, 'dead'), {});
   const removed = store.pruneDeadWindows(p, (pid) => pid === 100);
   assert.deepEqual(removed.sort(), ['dead', 'nopid']);
   assert.deepEqual(fs.readdirSync(p.windows), ['live.json']);
+  assert.deepEqual(fs.readdirSync(p.requests), ['live.json']);
 });
 
 test('pruneOldSessions deletes files older than 24 h', (t) => {

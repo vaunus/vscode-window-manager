@@ -1,7 +1,8 @@
 import Foundation
 
 // Reads the status files written by the hook and the VSCode extension.
-// Same rules as lib/state.js: longest folder match, most urgent state wins.
+// Same rules as lib/state.js: a Claude tab belongs to the window that runs
+// it, else longest folder match. Most urgent state wins.
 
 enum ClaudeState: Int, Comparable {
     case none = 0, idle, done, working, needsInput
@@ -99,6 +100,10 @@ struct Session {
     let reason: String?
     let detail: String?
     let updatedAt: Date?
+    // A tab of the Claude extension, not a terminal. Same as TAB_ENTRYPOINT in lib/state.js.
+    let inTab: Bool
+    // Tabs only: the pid of the window's extension host. Nil when not known.
+    let hostPid: Int32?
 }
 
 struct Row: Identifiable {
@@ -113,6 +118,9 @@ struct Row: Identifiable {
     var sleptAt: Date? = nil
     // The window's own work shows instead of a Claude session's status.
     var activity: WindowActivity = .none
+    // The shown session's id, when it is a Claude tab in this window. A
+    // click on "needs you" shows that tab.
+    var tabSession: String? = nil
     var asleep: Bool { sleptAt != nil }
     var id: String { window.id }
     var key: String { window.key }
@@ -165,6 +173,21 @@ func realPath(_ p: String) -> String {
 func isInside(_ p: String, _ folder: String) -> Bool {
     if p == folder { return true }
     return p.hasPrefix(folder.hasSuffix("/") ? folder : folder + "/")
+}
+
+// Ask the extension in a window to show a Claude tab. It checks that the
+// session is a tab in that window, then deletes the file.
+func requestTab(_ sessionId: String, in window: VSWindow) {
+    let dir = (statusDir() as NSString).appendingPathComponent("requests")
+    try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true,
+                                             attributes: [.posixPermissions: 0o700])
+    let f = ISO8601DateFormatter()
+    f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    let request: [String: Any] = ["sessionId": sessionId, "at": f.string(from: Date())]
+    guard let data = try? JSONSerialization.data(withJSONObject: request) else { return }
+    // Atomic: the extension reads the file when its name shows up.
+    let file = (dir as NSString).appendingPathComponent(window.id + ".json")
+    try? data.write(to: URL(fileURLWithPath: file), options: .atomic)
 }
 
 func isAlive(_ pid: Int32) -> Bool {
@@ -306,12 +329,18 @@ func loadRows(now: Date = Date(), idleAfter: TimeInterval) -> [Row] {
             state: ClaudeState(o["state"] as? String),
             reason: o["reason"] as? String,
             detail: o["detail"] as? String,
-            updatedAt: (o["updatedAt"] as? String).flatMap(parseDate)
+            updatedAt: (o["updatedAt"] as? String).flatMap(parseDate),
+            inTab: (o["entrypoint"] as? String) == "claude-vscode",
+            hostPid: (o["hostPid"] as? NSNumber).map { Int32($0.intValue) }
         )
     }
 
     var groups: [String: [Session]] = [:]
     for s in sessions {
+        if let host = s.hostPid, let w = windows.first(where: { $0.pid == host }) {
+            groups[w.id, default: []].append(s)
+            continue
+        }
         var best: VSWindow?
         var bestLen = -1
         for w in windows {
@@ -347,7 +376,8 @@ func loadRows(now: Date = Date(), idleAfter: TimeInterval) -> [Row] {
             quiet: isQuiet(top, now: now) || isOldDone(top, now: now, idleAfter: idleAfter),
             branch: w.rawFolders.first.flatMap(gitBranch),
             // Not idle sessions: VSCode starts them again when it opens.
-            lastActivity: active.compactMap(\.updatedAt).max()
+            lastActivity: active.compactMap(\.updatedAt).max(),
+            tabSession: top.flatMap { $0.inTab && $0.hostPid == w.pid ? $0.id : nil }
         )
         return withWindowActivity(row, claudeAt: top?.updatedAt, now: now, idleAfter: idleAfter)
     }
