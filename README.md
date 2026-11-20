@@ -4,7 +4,7 @@ If you, like me, would prefer to keep using VSCode in an age of agentic AI tooli
 
 VSCode Window Manager is a side bar app for macOS that gathers your open VSCode windows letting you quickly see their working state and switch between them. Featuring built in support for Claude Code.
 
-https://github.com/user-attachments/assets/b3a2af99-814f-4506-a58a-b553eb49095d
+https://github.com/user-attachments/assets/ce16364b-daf0-4db4-b90f-fe83bfc22365
 
 > **Live Claude Code status.** Each row shows what Claude Code is doing in that window, as it happens: **working**, **needs you** (a permission prompt or a question), or **done**.
 
@@ -15,7 +15,7 @@ https://github.com/user-attachments/assets/b3a2af99-814f-4506-a58a-b553eb49095d
 - Minimising hides all VSCode windows at once.
 - Drag rows to reorder them, or give them colors so they're easier to find.
 - Automatically close idle VSCode windows to free system memory.
-- Multi monitor support, pick which screen the window manager locks to.
+- The bar and its VSCode windows move as one window. Drag, resize or tile it.
 
 ## Requirements
 
@@ -74,7 +74,7 @@ This removes the app, the VSCode extension, the status hooks, and the saved sett
 - The VSCode extension writes each window's folders to `~/.claude/window-status/windows/`, with when something last changed in it and if a terminal command runs. It never stores file contents or commands.
 - A Claude Code hook writes each session's state to `~/.claude/window-status/sessions/`. It stores session ids, folder paths and state only. It never stores prompts or tool input.
 - The bar reads both folders once per second. It matches each Claude tab to the window that runs it, and each other session to the window that holds its folder.
-- When you click a "needs you" row of a Claude tab, the bar writes a request to `~/.claude/window-status/requests/`. The extension in that window brings the tab to the front.
+- When you click a "needs you" or "done" row of a Claude tab, the bar writes a request to `~/.claude/window-status/requests/`. The extension in that window brings the tab to the front.
 
 ## Development
 

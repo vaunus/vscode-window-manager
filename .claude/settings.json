@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mac/build.sh)",
+      "Bash(npm test *)"
+    ]
+  }
+}

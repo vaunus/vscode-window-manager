@@ -132,36 +132,171 @@ enum VSCodeWindows {
         return best
     }
 
-    // UUID of the screen for the bar, from the settings. nil: the main screen.
+    // UUID of the bar's screen, from the settings. nil: the main screen.
     static var screenId: String?
 
-    // The bar's screen minus the bar, in AX coordinates (top-left origin of
-    // the main screen).
-    static func targetFrame(width: CGFloat) -> CGRect? {
-        guard let screen = NSScreen.bar(screenId), let main = NSScreen.screens.first else { return nil }
-        let vf = screen.visibleFrame
-        return CGRect(x: vf.minX + width, y: main.frame.maxY - vf.maxY, width: vf.width - width, height: vf.height)
+    // Where the bar and the VSCode windows are, as one group, in AX
+    // coordinates (top-left origin of the main screen). The bar is on the
+    // left and the windows fill the rest. nil: all of the bar's screen.
+    static var group: CGRect?
+
+    // Cocoa coordinates (bottom-left origin) to AX coordinates, and back.
+    // It is the same flip both ways.
+    static func flip(_ r: CGRect) -> CGRect {
+        guard let main = NSScreen.screens.first else { return r }
+        return CGRect(x: r.minX, y: main.frame.maxY - r.maxY, width: r.width, height: r.height)
     }
 
-    // Bar frame, in Cocoa coordinates (bottom-left origin).
-    static func barFrame(width: CGFloat) -> NSRect {
-        guard let screen = NSScreen.bar(screenId) else { return NSRect(x: 0, y: 0, width: width, height: 600) }
-        let vf = screen.visibleFrame
-        return NSRect(x: vf.minX, y: vf.minY, width: width, height: vf.height)
+    static func flip(_ p: CGPoint) -> CGPoint {
+        guard let main = NSScreen.screens.first else { return p }
+        return CGPoint(x: p.x, y: main.frame.maxY - p.y)
+    }
+
+    // The screen without the menu bar and the Dock, in AX coordinates.
+    static func visibleFrame(_ screen: NSScreen) -> CGRect {
+        flip(screen.visibleFrame)
+    }
+
+    static var groupFrame: CGRect? {
+        group ?? NSScreen.bar(screenId).map(visibleFrame)
+    }
+
+    // The group minus the bar, in AX coordinates.
+    static func targetFrame(width: CGFloat) -> CGRect? {
+        guard let g = groupFrame else { return nil }
+        return CGRect(x: g.minX + width, y: g.minY, width: g.width - width, height: g.height)
+    }
+
+    // Bar frame, in Cocoa coordinates (bottom-left origin). group: another
+    // group frame, for example while the user drags a window.
+    static func barFrame(width: CGFloat, group: CGRect? = nil) -> NSRect {
+        guard let g = group ?? groupFrame else { return NSRect(x: 0, y: 0, width: width, height: 600) }
+        return flip(CGRect(x: g.minX, y: g.minY, width: width, height: g.height))
+    }
+
+    // The screen with this point on it. AX coordinates.
+    static func screen(at p: CGPoint) -> NSScreen? {
+        NSScreen.screens.first { flip($0.frame).contains(p) }
+    }
+
+    // The screen with the most of this rect on it. nil if it is on no screen.
+    static func screen(for r: CGRect) -> NSScreen? {
+        func area(_ s: NSScreen) -> CGFloat {
+            let i = flip(s.frame).intersection(r)
+            return i.isNull ? 0 : i.width * i.height
+        }
+        guard let best = NSScreen.screens.max(by: { area($0) < area($1) }), area(best) > 0 else { return nil }
+        return best
+    }
+
+    // The group on one screen, so all of the bar is in view. Near all of
+    // the screen counts as all of it, so a group that fills its screen
+    // still fills it when the Dock or the resolution changes. A group on no
+    // screen (its screen is not connected) fills the bar's screen.
+    static func fit(_ g: CGRect, on screen: NSScreen? = nil) -> CGRect? {
+        guard let s = screen ?? self.screen(for: g) else { return NSScreen.bar(screenId).map(visibleFrame) }
+        let v = visibleFrame(s)
+        let t: CGFloat = 40
+        if abs(g.minX - v.minX) < t, abs(g.minY - v.minY) < t, abs(g.maxX - v.maxX) < t, abs(g.maxY - v.maxY) < t {
+            return v
+        }
+        let w = min(g.width, v.width), h = min(g.height, v.height)
+        return CGRect(x: min(max(g.minX, v.minX), v.maxX - w), y: min(max(g.minY, v.minY), v.maxY - h), width: w, height: h)
+    }
+
+    // True if the group fills its screen.
+    static func isFill(_ g: CGRect) -> Bool {
+        guard let s = screen(for: g) else { return false }
+        let v = visibleFrame(s)
+        return abs(g.minX - v.minX) < 2 && abs(g.minY - v.minY) < 2 && abs(g.maxX - v.maxX) < 2 && abs(g.maxY - v.maxY) < 2
+    }
+
+    // Where tiles can have their edges, as parts of the screen. macOS tiles
+    // are halves, quarters and fill. Rectangle has thirds too.
+    static let halves: [CGFloat] = [0, 1 / 2, 1]
+    static let thirds: [CGFloat] = [0, 1 / 3, 1 / 2, 2 / 3, 1]
+
+    // The rect's edges as parts of the screen (0: left or top, 1: right or
+    // bottom), if each edge is near one of these parts. The tolerance is for
+    // the gaps that macOS and Rectangle can put around tiles.
+    static func tileParts(_ r: CGRect, on v: CGRect, _ parts: [CGFloat])
+        -> (left: CGFloat, right: CGFloat, top: CGFloat, bottom: CGFloat)? {
+        let t: CGFloat = 30
+        func part(_ a: CGFloat, _ start: CGFloat, _ size: CGFloat) -> CGFloat? {
+            parts.first { abs(start + $0 * size - a) <= t }
+        }
+        guard let left = part(r.minX, v.minX, v.width), let right = part(r.maxX, v.minX, v.width),
+              let top = part(r.minY, v.minY, v.height), let bottom = part(r.maxY, v.minY, v.height),
+              right - left >= 0.3, bottom - top >= 0.3 else { return nil }
+        return (left, right, top, bottom)
+    }
+
+    // True if macOS or Rectangle tiled the window on this screen.
+    static func isTile(_ r: CGRect, on v: CGRect, parts: [CGFloat] = halves) -> Bool {
+        tileParts(r, on: v, parts) != nil
+    }
+
+    // The Rectangle command for a tile. Only commands that do more when
+    // they repeat: halves can go to the next screen, and Rectangle can
+    // change their size. Not Maximize. Thirds only on a wide screen, where
+    // Rectangle makes columns.
+    static func rectangleCommand(_ r: CGRect, on v: CGRect) -> String? {
+        guard let p = tileParts(r, on: v, thirds) else { return nil }
+        // In sixths: 2 is a third, 3 a half, 4 two thirds.
+        let key = [p.left, p.right, p.top, p.bottom].map { Int(($0 * 6).rounded()) }
+        let names: [[Int]: String] = [
+            [0, 3, 0, 6]: "left-half", [3, 6, 0, 6]: "right-half", [0, 6, 0, 3]: "top-half", [0, 6, 3, 6]: "bottom-half",
+            [0, 3, 0, 3]: "top-left", [3, 6, 0, 3]: "top-right", [0, 3, 3, 6]: "bottom-left", [3, 6, 3, 6]: "bottom-right",
+            [0, 2, 0, 6]: "first-third", [2, 4, 0, 6]: "center-third", [4, 6, 0, 6]: "last-third",
+            [0, 4, 0, 6]: "first-two-thirds", [2, 6, 0, 6]: "last-two-thirds",
+        ]
+        guard let name = names[key] else { return nil }
+        return name.contains("third") && v.height > v.width ? nil : name
+    }
+
+    // A full screen window: macOS full screen, or VSCode's own full screen
+    // (window.nativeFullScreen off), which covers the whole screen.
+    static func fillsScreen(_ ax: AXUIElement) -> Bool {
+        if isFullScreen(ax) { return true }
+        guard let f = frame(ax), let s = screen(for: f) else { return false }
+        let sf = flip(s.frame)
+        return f.minX <= sf.minX + 1 && f.minY <= sf.minY + 1 && f.maxX >= sf.maxX - 1 && f.maxY >= sf.maxY - 1
     }
 
     // Strip just right of the bar, where the corner pieces go. Cocoa coordinates.
-    static func cornerFrame(width: CGFloat) -> NSRect {
-        let bar = barFrame(width: width)
+    static func cornerFrame(width: CGFloat, group: CGRect? = nil) -> NSRect {
+        let bar = barFrame(width: width, group: group)
         return NSRect(x: bar.maxX, y: bar.minY, width: windowRadius, height: bar.height)
     }
 
     // Box over the window buttons of a window next to the bar. Cocoa coordinates.
     // The 3 pt margin stays clear of the window's rounded corner and border.
     static func coverFrame(width: CGFloat, buttons: CGRect) -> NSRect? {
-        guard let target = targetFrame(width: width), let main = NSScreen.screens.first else { return nil }
-        let r = buttons.offsetBy(dx: target.minX, dy: target.minY).insetBy(dx: -3, dy: -3)
-        return NSRect(x: r.minX, y: main.frame.maxY - r.maxY, width: r.width, height: r.height)
+        guard let target = targetFrame(width: width) else { return nil }
+        return flip(buttons.offsetBy(dx: target.minX, dy: target.minY).insetBy(dx: -3, dy: -3))
+    }
+
+    // When the bar last placed each window. Its own moves send move and
+    // resize events too. Those are not the user's.
+    static var placedAt: [AXKey: Date] = [:]
+
+    static func placedByBar(_ ax: AXUIElement, within seconds: TimeInterval = 0.3) -> Bool {
+        placedAt[AXKey(ax)].map { Date().timeIntervalSince($0) < seconds } ?? false
+    }
+
+    // One step of a slide. A window that gets narrower moves first, and one
+    // that gets wider grows first, so the other edge only goes past its new
+    // place, mostly off the screen, and not inside it.
+    static func setFrame(_ ax: AXUIElement, _ r: CGRect) {
+        placedAt[AXKey(ax)] = Date()
+        var origin = r.origin
+        var size = r.size
+        guard let pos = AXValueCreate(.cgPoint, &origin), let sz = AXValueCreate(.cgSize, &size) else { return }
+        let narrower = (self.size(ax, kAXSizeAttribute)?.width ?? 0) > r.width
+        for (name, value) in narrower ? [(kAXPositionAttribute, pos), (kAXSizeAttribute, sz)]
+                                      : [(kAXSizeAttribute, sz), (kAXPositionAttribute, pos)] {
+            AXUIElementSetAttributeValue(ax, name as CFString, value)
+        }
     }
 
     // restore: false leaves a minimized window minimized.
@@ -172,6 +307,9 @@ enum VSCodeWindows {
             guard restore else { return }
             AXUIElementSetAttributeValue(ax, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
         }
+        let now = Date()
+        placedAt = placedAt.filter { now.timeIntervalSince($0.value) < 5 }
+        placedAt[AXKey(ax)] = now
         var origin = r.origin
         var size = r.size
         guard let pos = AXValueCreate(.cgPoint, &origin), let sz = AXValueCreate(.cgSize, &size) else { return }
@@ -197,11 +335,37 @@ enum VSCodeWindows {
     // Window server number of the front VSCode window on the current Space.
     // Covered windows count. Hidden and minimized windows do not.
     static func frontWindowNumber(_ app: NSRunningApplication) -> Int? {
+        frontWindowInfo(app)?[kCGWindowNumber as String] as? Int
+    }
+
+    static func frontWindowInfo(_ app: NSRunningApplication) -> [String: Any]? {
         let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
         return list?.first {
             ($0[kCGWindowOwnerPID as String] as? pid_t) == app.processIdentifier
                 && ($0[kCGWindowLayer as String] as? Int) == 0
-        }?[kCGWindowNumber as String] as? Int
+        }
+    }
+
+    // A window's frame from the window server, in AX coordinates.
+    static func bounds(_ info: [String: Any]) -> CGRect? {
+        guard let d = info[kCGWindowBounds as String] as? NSDictionary else { return nil }
+        return CGRect(dictionaryRepresentation: d as CFDictionary)
+    }
+
+    // The window that the user drags: the front VSCode window, once it is
+    // away from this frame. The others stay there, next to the bar.
+    static func movingWindowNumber(_ app: NSRunningApplication, from f: CGRect) -> CGWindowID? {
+        guard let info = frontWindowInfo(app), let b = bounds(info),
+              abs(b.minX - f.minX) >= 1 || abs(b.minY - f.minY) >= 1 || abs(b.width - f.width) >= 1 || abs(b.height - f.height) >= 1
+        else { return nil }
+        return info[kCGWindowNumber as String] as? CGWindowID
+    }
+
+    // Where the window is on screen now. Quick: the window server knows it
+    // during a drag, and VSCode is not asked.
+    static func windowBounds(_ number: CGWindowID) -> CGRect? {
+        let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], number) as? [[String: Any]]
+        return list?.first.flatMap(bounds)
     }
 
     // Close a VSCode window, like a click on its close button (the cover

@@ -116,7 +116,7 @@ struct Row: Identifiable {
     // The window's own work shows instead of a Claude session's status.
     var activity: WindowActivity = .none
     // The shown session's id, when it is a Claude tab in this window. A
-    // click on "needs you" shows that tab.
+    // click on "needs you" or a "done" tick shows that tab.
     var tabSession: String? = nil
     var asleep: Bool { sleptAt != nil }
     var id: String { window.id }

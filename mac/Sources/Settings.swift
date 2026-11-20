@@ -61,6 +61,11 @@ final class Settings: ObservableObject {
     @Published var width: Double { didSet { UserDefaults.standard.set(width, forKey: "barWidth") } }
     // UUID of the screen for the bar. nil: the main screen.
     @Published var screen: String? { didSet { UserDefaults.standard.set(screen, forKey: "screen") } }
+    // Where the user put the bar and the VSCode windows, in AX coordinates.
+    // nil: they fill the bar's screen.
+    @Published var group: CGRect? {
+        didSet { UserDefaults.standard.set(group.map { [$0.minX, $0.minY, $0.width, $0.height] }, forKey: "group") }
+    }
     // Row keys (folder paths) in the saved order.
     @Published var order: [String] { didSet { UserDefaults.standard.set(order, forKey: "order") } }
     // Row key -> color name.
@@ -93,6 +98,7 @@ final class Settings: ObservableObject {
         let w = d.double(forKey: "barWidth")
         width = w == 0 ? 220 : min(max(w, Self.minWidth), Self.maxWidth)
         screen = d.string(forKey: "screen")
+        group = (d.array(forKey: "group") as? [Double]).flatMap { $0.count == 4 ? CGRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) : nil }
         order = d.stringArray(forKey: "order") ?? []
         colors = d.dictionary(forKey: "colors") as? [String: String] ?? [:]
         sleepAfterHours = Self.choice(d, "sleepAfterHours", in: Self.sleepChoices, default: 4)

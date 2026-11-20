@@ -383,7 +383,7 @@ function writeOwnWindow() {
 }
 
 // The bar asks this window to show a Claude tab: you clicked a row whose
-// Claude tab needs you. The request is used once.
+// Claude tab needs you or is done. The request is used once.
 function showRequestedTab() {
   if (!ctx) return;
   const file = store.requestFile(ctx.paths, ctx.id);
