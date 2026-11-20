@@ -35,9 +35,6 @@ struct VSWindow {
     // when not known. Auto sleep needs both to be false.
     let unsaved: Bool?
     let busy: Bool?
-    // When the window last had the focus, also from before the bar started.
-    // Nil when not known, for example from an old extension.
-    let usedAt: Date?
     // When something last changed in the window: an edit, a save, a file,
     // git, or a terminal command. Also from before the bar started.
     let activeAt: Date?
@@ -81,7 +78,7 @@ struct SleepingWindow: Codable, Equatable {
     var window: VSWindow {
         VSWindow(id: "asleep:" + key, pid: 0, name: name, folders: rawFolders.map(realPath), rawFolders: rawFolders,
                  workspaceFile: workspaceFile, titleBarColor: nil, titleBarInactiveColor: nil, changes: 0,
-                 unsaved: nil, busy: nil, usedAt: nil, activeAt: nil, running: nil, empty: false,
+                 unsaved: nil, busy: nil, activeAt: nil, running: nil, empty: false,
                  startedAt: nil, focusedAt: nil)
     }
 
@@ -312,7 +309,6 @@ func loadRows(now: Date = Date(), idleAfter: TimeInterval) -> [Row] {
             changes: max(0, (o["changes"] as? NSNumber)?.intValue ?? 0),
             unsaved: o["unsaved"] as? Bool,
             busy: o["busy"] as? Bool,
-            usedAt: (o["usedAt"] as? String).flatMap(parseDate),
             activeAt: (o["activeAt"] as? String).flatMap(parseDate),
             running: o["running"] as? Bool,
             empty: empty,

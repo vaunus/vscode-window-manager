@@ -46,10 +46,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // window again until its frame changes, so it does not fight the window.
     var stuck: [(window: AXUIElement, frame: CGRect)] = []
     var cancellables: Set<AnyCancellable> = []
-    // For auto sleep: when the bar started, when each row last had the focus
-    // while the bar ran, and when the bar woke each window (by key).
+    // For auto sleep: when the bar started, and when the bar woke each
+    // window (by key).
     let launchedAt = Date()
-    var lastFocused: [String: Date] = [:]
     var wokenAt: [String: Date] = [:]
     // Sleeping windows that the bar asked VSCode to open, by key.
     var waking: [String: Date] = [:]
@@ -269,7 +268,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         model.activeId = row.id
-        lastFocused[row.id] = Date()
         // Recolor the cover in the same step as the switch, so the old
         // window's color does not flash.
         coverRowId = row.id
@@ -354,14 +352,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.rows = allRows()
     }
 
-    // Auto sleep: close the windows that nobody used for the set time. Not
-    // the window in use, and not a window with unsaved files, something that
+    // Auto sleep: close the windows where nothing changed for the set time.
+    // Not the window in use, and not a window with unsaved files, something that
     // runs in a terminal or a task, or a Claude session that works or waits
     // for you. A window from an old extension does not say, so it stays.
     // The bar finds a window by its title, so two windows with the same name
     // can be mixed up. They stay too, so the wrong one does not close.
     func autoSleep(now: Date = Date()) {
-        lastFocused = lastFocused.filter { id, _ in model.rows.contains { $0.id == id } }
         wokenAt = wokenAt.filter { key, _ in model.rows.contains { $0.key == key } }
         guard settings.sleepAfterHours > 0, model.trusted, let active = model.activeId,
               model.rows.contains(where: { $0.id == active }) else { return }
@@ -374,14 +371,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // When the window was last used: it had the focus, something changed in
-    // it (the extension keeps both from before the bar started), the bar
-    // woke it, or a Claude session had news. So a window not used for the
-    // set time before the bar started sleeps soon after the bar starts. If
-    // none of these is known: when the window or the bar started, whichever
-    // is later.
+    // When the window was last used: the time its row shows. That is when
+    // something changed in it (the extension keeps it from before the bar
+    // started) or a Claude session had news. A focus with no change does not
+    // count. Also when the bar woke it, so it does not sleep again at once.
+    // A window not used for the set time before the bar started sleeps soon
+    // after the bar starts. If none of these is known: when the window or
+    // the bar started, whichever is later.
     func lastUse(_ row: Row) -> Date {
-        let known = [row.window.usedAt, row.window.activeAt, lastFocused[row.id], wokenAt[row.key], row.lastActivity]
+        let known = [row.window.activeAt, row.lastActivity, wokenAt[row.key]]
             .compactMap { $0 }
         return known.max() ?? max(row.window.startedAt ?? launchedAt, launchedAt)
     }
@@ -521,7 +519,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier,
               let ax = VSCodeWindows.focusedWindow(app) else { return }
         model.activeId = row(for: ax)?.id
-        if let id = model.activeId { lastFocused[id] = Date() }
     }
 
     // The row of a VSCode window: a known empty window, or the folder row

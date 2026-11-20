@@ -16,9 +16,7 @@ const modal = require("./lib/modal");
 const git = require("./lib/git");
 const activity = require("./lib/activity");
 
-// Workspace state keys: when the window last had the focus, and when
-// something last changed in it.
-const USED_AT_KEY = "usedAt";
+// Workspace state key: when something last changed in the window.
 const ACTIVE_AT_KEY = "activeAt";
 // Write the window file at most this often for activity (edits).
 const ACTIVITY_WRITE_MS = 5000;
@@ -346,11 +344,9 @@ function ownRecord() {
     unsaved: ctx.unsaved,
     busy: ctx.busy,
     startedAt: ctx.startedAt,
-    // For the bar's auto sleep: when this window last had the focus, also
-    // from before VSCode or the bar started. Null when not known.
-    usedAt: ctx.usedAt,
     // When something last changed in the window (see noteActivity), also
-    // from before VSCode or the bar started. Null when not known.
+    // from before VSCode or the bar started. Null when not known. The bar
+    // shows it, and auto sleep counts from it.
     activeAt: ctx.activeAt,
     // A command runs in a terminal or a task (see isRunning).
     running: ctx.runningNow,
@@ -361,14 +357,11 @@ function ownRecord() {
   };
 }
 
-// This window got or lost the focus: it is in use until now. VSCode keeps
-// the time for the workspace, so it is known after a restart too.
+// This window got or lost the focus. The bar needs it for empty windows,
+// see focusedAt. A focus alone is not use, so auto sleep does not count it.
 function updateFocus(windowState) {
   if (!ctx || windowState.focused === Boolean(ctx.focusedAt)) return;
-  const now = new Date().toISOString();
-  ctx.focusedAt = windowState.focused ? now : null;
-  ctx.usedAt = now;
-  ctx.workspaceState.update(USED_AT_KEY, now);
+  ctx.focusedAt = windowState.focused ? new Date().toISOString() : null;
   writeOwnWindow();
 }
 
@@ -477,12 +470,9 @@ function activate(context) {
     startedAt: new Date().toISOString(),
     // When this window got the focus. Null while it does not have it.
     focusedAt: vscode.window.state.focused ? new Date().toISOString() : null,
-    // When this window last had the focus, kept by VSCode for the workspace.
+    // Kept by VSCode for the workspace, so activeAt is known after a restart.
     workspaceState: context.workspaceState,
-    usedAt: null,
   };
-  ctx.usedAt = ctx.focusedAt || context.workspaceState.get(USED_AT_KEY) || null;
-  if (ctx.focusedAt) context.workspaceState.update(USED_AT_KEY, ctx.usedAt);
 
   try {
     store.ensureDirs(ctx.paths);
