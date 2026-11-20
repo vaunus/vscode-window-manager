@@ -30,6 +30,18 @@ struct VSWindow {
     let titleBarInactiveColor: Int?    // 0xRRGGBB, not focused
     // Uncommitted changes, like the number on VSCode's Source Control icon.
     let changes: Int
+    // Unsaved files, and something that runs in a terminal or a task. Nil
+    // when not known. Auto sleep needs both to be false.
+    let unsaved: Bool?
+    let busy: Bool?
+    // When the window last had the focus, also from before the bar started.
+    // Nil when not known, for example from an old extension.
+    let usedAt: Date?
+    // When something last changed in the window: an edit, a save, a file,
+    // git, or a terminal command. Also from before the bar started.
+    let activeAt: Date?
+    // A command (not Claude Code) runs in a terminal, or a task runs.
+    let running: Bool?
     // No folder and no workspace, for example a new window on the Welcome page.
     let empty: Bool
     let startedAt: Date?
@@ -39,6 +51,45 @@ struct VSWindow {
     // Stable key for saved order and color. Window ids change on restart.
     // An empty window has no saved order or color.
     var key: String { workspaceFile ?? rawFolders.first ?? id }
+
+    // VSCode can open it again: a workspace file or one folder. A
+    // multi-folder window without a workspace file is not saved anywhere.
+    var canReopen: Bool { !empty && (workspaceFile != nil || rawFolders.count == 1) }
+}
+
+// A VSCode window that the bar closed to free its memory. Its row stays,
+// and a click opens it again. Saved, so it stays after a restart.
+struct SleepingWindow: Codable, Equatable {
+    let key: String
+    let name: String
+    let rawFolders: [String]
+    let workspaceFile: String?
+    let sleptAt: Date
+
+    init(_ w: VSWindow, at date: Date) {
+        key = w.key
+        name = w.name
+        rawFolders = w.rawFolders
+        workspaceFile = w.workspaceFile
+        sleptAt = date
+    }
+
+    // What "code" opens to wake it.
+    var target: String? { workspaceFile ?? rawFolders.first }
+
+    var window: VSWindow {
+        VSWindow(id: "asleep:" + key, pid: 0, name: name, folders: rawFolders.map(realPath), rawFolders: rawFolders,
+                 workspaceFile: workspaceFile, titleBarColor: nil, titleBarInactiveColor: nil, changes: 0,
+                 unsaved: nil, busy: nil, usedAt: nil, activeAt: nil, running: nil, empty: false,
+                 startedAt: nil, focusedAt: nil)
+    }
+
+    // waking: the bar asked VSCode to open it a moment ago.
+    func row(waking: Bool, now: Date) -> Row {
+        Row(window: window, state: .none,
+            text: waking ? "waking…" : "asleep · \(formatAge(now.timeIntervalSince(sleptAt)))",
+            extraCount: 0, quiet: false, branch: rawFolders.first.flatMap(gitBranch), sleptAt: sleptAt)
+    }
 }
 
 struct Session {
@@ -57,6 +108,13 @@ struct Row: Identifiable {
     let extraCount: Int        // other non-idle sessions, shown as "+N"
     let quiet: Bool            // no update for a while: working may be stopped, done is old
     let branch: String?
+    // The last update of its Claude sessions that got a prompt.
+    var lastActivity: Date? = nil
+    // When the bar closed the window to free its memory. Nil while awake.
+    var sleptAt: Date? = nil
+    // The window's own work shows instead of a Claude session's status.
+    var activity: WindowActivity = .none
+    var asleep: Bool { sleptAt != nil }
     var id: String { window.id }
     var key: String { window.key }
     var name: String { window.name }
@@ -142,12 +200,10 @@ func isQuiet(_ s: Session?, now: Date) -> Bool {
     return now.timeIntervalSince(t) > quietAfter
 }
 
-// The "done" tick is green for this long, then grey.
-let freshDoneFor: TimeInterval = 5 * 60
-
-func isOldDone(_ s: Session?, now: Date) -> Bool {
+// The "done" tick is green for the idle time (a setting), then grey.
+func isOldDone(_ s: Session?, now: Date, idleAfter: TimeInterval) -> Bool {
     guard let s, s.state == .done, let t = s.updatedAt else { return false }
-    return now.timeIntervalSince(t) > freshDoneFor
+    return now.timeIntervalSince(t) > idleAfter
 }
 
 // A quiet session ranks below a fresh "working" one, above "done".
@@ -165,7 +221,8 @@ func sessionText(_ s: Session?, now: Date) -> String {
         }
         return "working"
     case .done: return s.updatedAt.map { "done · \(formatAge(now.timeIntervalSince($0)))" } ?? "done"
-    case .idle: return "idle"
+    // Since the session started, or since /clear.
+    case .idle: return s.updatedAt.map { "idle · \(formatAge(now.timeIntervalSince($0)))" } ?? "idle"
     case .none: return ""
     }
 }
@@ -214,7 +271,8 @@ func parseHex(_ s: String?) -> Int? {
 }
 
 // One row per live VSCode window, sorted by name.
-func loadRows(now: Date = Date()) -> [Row] {
+// idleAfter: the idle time (a setting). See withWindowActivity and isOldDone.
+func loadRows(now: Date = Date(), idleAfter: TimeInterval) -> [Row] {
     let windows: [VSWindow] = readStatusDir("windows").compactMap { id, o in
         let pid = Int32((o["pid"] as? NSNumber)?.intValue ?? 0)
         guard isAlive(pid) else { return nil }
@@ -230,6 +288,11 @@ func loadRows(now: Date = Date()) -> [Row] {
             titleBarColor: parseHex(o["titleBarColor"] as? String),
             titleBarInactiveColor: parseHex(o["titleBarInactiveColor"] as? String),
             changes: max(0, (o["changes"] as? NSNumber)?.intValue ?? 0),
+            unsaved: o["unsaved"] as? Bool,
+            busy: o["busy"] as? Bool,
+            usedAt: (o["usedAt"] as? String).flatMap(parseDate),
+            activeAt: (o["activeAt"] as? String).flatMap(parseDate),
+            running: o["running"] as? Bool,
             empty: empty,
             startedAt: (o["startedAt"] as? String).flatMap(parseDate),
             focusedAt: (o["focusedAt"] as? String).flatMap(parseDate)
@@ -271,14 +334,59 @@ func loadRows(now: Date = Date()) -> [Row] {
         let top = list.first
         // Idle sessions never got a prompt, so they do not count in "+N".
         let active = list.filter { $0.state > .idle }
-        return Row(
+        let row = Row(
             window: w,
             state: top?.state ?? .none,
             text: sessionText(top, now: now),
             extraCount: max(0, active.count - 1),
-            quiet: isQuiet(top, now: now) || isOldDone(top, now: now),
-            branch: w.rawFolders.first.flatMap(gitBranch)
+            quiet: isQuiet(top, now: now) || isOldDone(top, now: now, idleAfter: idleAfter),
+            branch: w.rawFolders.first.flatMap(gitBranch),
+            // Not idle sessions: VSCode starts them again when it opens.
+            lastActivity: active.compactMap(\.updatedAt).max()
         )
+        return withWindowActivity(row, claudeAt: top?.updatedAt, now: now, idleAfter: idleAfter)
     }
     .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+}
+
+// What the window itself does, shown instead of the Claude status.
+enum WindowActivity {
+    case none
+    // Something changed in the idle time (a setting).
+    case editing
+    // A command runs in a terminal, or a task runs.
+    case terminal
+}
+
+// Claude's own changes can reach the bar some seconds after its "done":
+// git loads its status after the files change. Later changes are yours.
+let claudeChangesFor: TimeInterval = 30
+
+// While no Claude session works or waits for you, the row shows, in order:
+// 1. A green "done" tick, if you changed nothing after it.
+// 2. "working" with a terminal icon while a command runs.
+// 3. "working" for the idle time (a setting) after a change.
+// 4. A grey "done" tick, if you changed nothing after it.
+// 5. "idle" and the time since the last change.
+// A new Claude session that got no prompt yet (for example one that VSCode
+// started again) does not stop the idle time.
+func withWindowActivity(_ row: Row, claudeAt: Date?, now: Date, idleAfter: TimeInterval) -> Row {
+    let w = row.window
+    guard row.state < .working else { return row }
+    let changedAfterDone = w.activeAt.map { $0 > (claudeAt ?? .distantPast) + claudeChangesFor } == true
+    let showsDone = row.state == .done && !changedAfterDone
+    func working(_ activity: WindowActivity) -> Row {
+        Row(window: w, state: row.state, text: "working", extraCount: 0, quiet: false,
+            branch: row.branch, lastActivity: row.lastActivity, activity: activity)
+    }
+    if showsDone && !row.quiet { return row }
+    if w.running == true { return working(.terminal) }
+    // With a done tick, the changes are Claude's or older than it.
+    if !showsDone, let at = w.activeAt, now.timeIntervalSince(at) < idleAfter { return working(.editing) }
+    if showsDone { return row }
+    if let at = w.activeAt {
+        return Row(window: w, state: .idle, text: "idle · \(formatAge(now.timeIntervalSince(at)))", extraCount: 0,
+                   quiet: false, branch: row.branch, lastActivity: row.lastActivity)
+    }
+    return row
 }

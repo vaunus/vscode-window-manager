@@ -12,6 +12,16 @@ const store = require("./lib/store");
 const theme = require("./lib/theme");
 const modal = require("./lib/modal");
 const git = require("./lib/git");
+const activity = require("./lib/activity");
+
+// Workspace state keys: when the window last had the focus, and when
+// something last changed in it.
+const USED_AT_KEY = "usedAt";
+const ACTIVE_AT_KEY = "activeAt";
+// Write the window file at most this often for activity (edits).
+const ACTIVITY_WRITE_MS = 5000;
+// No activity for this long after the window opens. See ctx.quietUntil.
+const STARTUP_QUIET_MS = 10000;
 
 // Settings that can change the title bar color.
 const COLOR_SETTINGS = [
@@ -114,10 +124,24 @@ function updateModal() {
   writeOwnWindow();
 }
 
-// The git changes changed: write the window file if the count is new.
+// Git's status changed: write the window file if the count is new. New
+// changed files or a new commit in a repository count as activity. A
+// repository's first status does not: before it, git has not loaded the
+// status yet (no HEAD), and the lists are empty.
 function updateChanges() {
   if (!ctx || !ctx.git) return;
-  const count = git.countChanges(ctx.git.repositories);
+  const repos = ctx.git.repositories;
+  let changed = false;
+  for (const repo of repos) {
+    if (!repo.state.HEAD) continue;
+    const key = repo.rootUri.toString();
+    const sig = git.changeSignature(repo);
+    if (ctx.gitSignatures.has(key) && ctx.gitSignatures.get(key) !== sig) changed = true;
+    ctx.gitSignatures.set(key, sig);
+  }
+  ctx.changedPaths = git.changedPaths(repos);
+  if (changed) noteActivity();
+  const count = git.countChanges(repos);
   if (count === ctx.changes) return;
   ctx.changes = count;
   writeOwnWindow();
@@ -138,6 +162,7 @@ function unwatchRepo(repo) {
   const sub = ctx.repos.get(key);
   if (sub) sub.dispose();
   ctx.repos.delete(key);
+  ctx.gitSignatures.delete(key);
   updateChanges();
 }
 
@@ -162,6 +187,120 @@ async function watchGit(context) {
   } catch (err) {
     log(`Could not watch git: ${err.message}`);
   }
+}
+
+// For the bar's auto sleep. The bar does not close a window by itself while
+// it has unsaved files, or while something runs in a terminal or a task.
+function hasUnsaved() {
+  return (
+    vscode.workspace.textDocuments.some((d) => d.isDirty) ||
+    vscode.workspace.notebookDocuments.some((d) => d.isDirty) ||
+    vscode.window.tabGroups.all.some((g) => g.tabs.some((t) => t.isDirty))
+  );
+}
+
+// A terminal without shell integration counts as busy, because the
+// extension cannot see its commands.
+function isBusy() {
+  return (
+    vscode.tasks.taskExecutions.length > 0 ||
+    ctx.running.size > 0 ||
+    vscode.window.terminals.some((t) => !t.exitStatus && !t.shellIntegration)
+  );
+}
+
+// For the bar's "working" with a terminal icon: a task, or a command that
+// the extension sees in a terminal. Not Claude Code in a terminal, because
+// the bar shows Claude's own status.
+function isRunning() {
+  return (
+    vscode.tasks.taskExecutions.length > 0 ||
+    [...ctx.running.values()].some((r) => !activity.isClaudeCommand(r.command))
+  );
+}
+
+function updateSleepInfo() {
+  if (!ctx) return;
+  const unsaved = hasUnsaved();
+  const busy = isBusy();
+  const running = isRunning();
+  if (unsaved === ctx.unsaved && busy === ctx.busy && running === ctx.runningNow) return;
+  ctx.unsaved = unsaved;
+  ctx.busy = busy;
+  ctx.runningNow = running;
+  writeOwnWindow();
+}
+
+// Something changed in the window: an edit, a save, a file, git, or a
+// command. The bar shows "working" for a short while, then "idle" and how
+// long. Edits come with each key press, so the window file and VSCode's
+// saved copy are written at most once per ACTIVITY_WRITE_MS.
+function noteActivity() {
+  if (!ctx || Date.now() < ctx.quietUntil) return;
+  ctx.activeAt = new Date().toISOString();
+  if (ctx.activityTimer) return;
+  const wait = Math.max(0, ctx.activityWrittenAt + ACTIVITY_WRITE_MS - Date.now());
+  ctx.activityTimer = setTimeout(() => {
+    if (!ctx) return;
+    ctx.activityTimer = null;
+    ctx.activityWrittenAt = Date.now();
+    ctx.workspaceState.update(ACTIVE_AT_KEY, ctx.activeAt);
+    writeOwnWindow();
+  }, wait);
+}
+
+// Only changes to the text of files. Not output panels, and not a save,
+// which changes only the dirty state.
+function documentChanged(e) {
+  const scheme = e.document.uri.scheme;
+  if (e.contentChanges.length && (scheme === "file" || scheme === "untitled")) noteActivity();
+  updateSleepInfo();
+}
+
+function documentSaved() {
+  noteActivity();
+  updateSleepInfo();
+}
+
+// A file changed on disk, by any tool. Only files with git changes count:
+// git leaves out node_modules, build output and other ignored files. A file
+// that had no changes before shows in git's next status, see updateChanges.
+function fileChanged(uri) {
+  if (ctx && ctx.changedPaths.has(uri.fsPath)) noteActivity();
+}
+
+function taskChanged() {
+  noteActivity();
+  updateSleepInfo();
+}
+
+function commandStarted(e) {
+  if (!ctx) return;
+  const command = e.execution.commandLine ? e.execution.commandLine.value : "";
+  ctx.running.set(e.execution, { terminal: e.terminal, command });
+  noteActivity();
+  updateSleepInfo();
+}
+
+function commandEnded(e) {
+  if (!ctx) return;
+  ctx.running.delete(e.execution);
+  noteActivity();
+  updateSleepInfo();
+}
+
+// A closed terminal sends no end for its commands.
+function terminalClosed(terminal) {
+  if (!ctx) return;
+  for (const [execution, r] of ctx.running) {
+    if (r.terminal === terminal) ctx.running.delete(execution);
+  }
+  updateSleepInfo();
+}
+
+function tabsChanged() {
+  updateModal();
+  updateSleepInfo();
 }
 
 // True for an empty window: no folder and no workspace, for example a new
@@ -197,7 +336,18 @@ function ownRecord() {
     // Uncommitted changes, like the number on VSCode's Source Control icon.
     // Null while git is not ready.
     changes: ctx.changes,
+    // For the bar's auto sleep. Null until known.
+    unsaved: ctx.unsaved,
+    busy: ctx.busy,
     startedAt: ctx.startedAt,
+    // For the bar's auto sleep: when this window last had the focus, also
+    // from before VSCode or the bar started. Null when not known.
+    usedAt: ctx.usedAt,
+    // When something last changed in the window (see noteActivity), also
+    // from before VSCode or the bar started. Null when not known.
+    activeAt: ctx.activeAt,
+    // A command runs in a terminal or a task (see isRunning).
+    running: ctx.runningNow,
     // Empty windows all look the same to the bar. When one gets the focus,
     // the bar takes the focused VSCode window as this one.
     focusedAt: empty ? ctx.focusedAt : null,
@@ -205,11 +355,15 @@ function ownRecord() {
   };
 }
 
-// This window got or lost the focus. Only an empty window writes it.
+// This window got or lost the focus: it is in use until now. VSCode keeps
+// the time for the workspace, so it is known after a restart too.
 function updateFocus(windowState) {
   if (!ctx || windowState.focused === Boolean(ctx.focusedAt)) return;
-  ctx.focusedAt = windowState.focused ? new Date().toISOString() : null;
-  if (ctx.own && ctx.own.empty) writeOwnWindow();
+  const now = new Date().toISOString();
+  ctx.focusedAt = windowState.focused ? now : null;
+  ctx.usedAt = now;
+  ctx.workspaceState.update(USED_AT_KEY, now);
+  writeOwnWindow();
 }
 
 function writeOwnWindow() {
@@ -263,10 +417,34 @@ function activate(context) {
     git: null,
     repos: new Map(),
     changes: null,
+    // Unsaved files, and something that runs in a terminal or a task. The
+    // running terminal commands, and their terminals.
+    unsaved: null,
+    busy: null,
+    running: new Map(),
+    // A command (not Claude Code) or a task runs. See isRunning.
+    runningNow: null,
+    // Activity: when something last changed, kept by VSCode for the
+    // workspace, and when the window file last had it. See noteActivity.
+    activeAt: context.workspaceState.get(ACTIVE_AT_KEY) || null,
+    activityWrittenAt: 0,
+    activityTimer: null,
+    // While VSCode opens the window, it restores files and terminals, and
+    // git loads. None of that is a change by you, so it is not activity.
+    quietUntil: Date.now() + STARTUP_QUIET_MS,
+    // Per repository root: its commit and changed files. And the paths of
+    // all changed files. See updateChanges.
+    gitSignatures: new Map(),
+    changedPaths: new Set(),
     startedAt: new Date().toISOString(),
     // When this window got the focus. Null while it does not have it.
     focusedAt: vscode.window.state.focused ? new Date().toISOString() : null,
+    // When this window last had the focus, kept by VSCode for the workspace.
+    workspaceState: context.workspaceState,
+    usedAt: null,
   };
+  ctx.usedAt = ctx.focusedAt || context.workspaceState.get(USED_AT_KEY) || null;
+  if (ctx.focusedAt) context.workspaceState.update(USED_AT_KEY, ctx.usedAt);
 
   try {
     store.ensureDirs(ctx.paths);
@@ -288,16 +466,41 @@ function activate(context) {
     // A theme extension was added or removed.
     vscode.extensions.onDidChange(refreshColors),
     vscode.window.tabGroups.onDidChangeTabGroups(updateModal),
-    vscode.window.tabGroups.onDidChangeTabs(updateModal),
+    vscode.window.tabGroups.onDidChangeTabs(tabsChanged),
     vscode.window.onDidChangeWindowState(updateFocus),
+    vscode.workspace.onDidChangeTextDocument(documentChanged),
+    vscode.workspace.onDidSaveTextDocument(documentSaved),
+    vscode.workspace.onDidCloseTextDocument(updateSleepInfo),
+    // Files made, deleted or renamed in VSCode, for example in the Explorer.
+    vscode.workspace.onDidCreateFiles(noteActivity),
+    vscode.workspace.onDidDeleteFiles(noteActivity),
+    vscode.workspace.onDidRenameFiles(noteActivity),
+    vscode.window.onDidOpenTerminal(updateSleepInfo),
+    vscode.window.onDidCloseTerminal(terminalClosed),
+    vscode.window.onDidChangeTerminalShellIntegration(updateSleepInfo),
+    vscode.window.onDidStartTerminalShellExecution(commandStarted),
+    vscode.window.onDidEndTerminalShellExecution(commandEnded),
+    vscode.tasks.onDidStartTask(taskChanged),
+    vscode.tasks.onDidEndTask(taskChanged),
+  );
+  // Files changed on disk by any tool. See fileChanged.
+  const files = vscode.workspace.createFileSystemWatcher("**/*");
+  context.subscriptions.push(
+    files,
+    files.onDidChange(fileChanged),
+    files.onDidCreate(fileChanged),
+    files.onDidDelete(fileChanged),
   );
   refreshColors();
+  updateSleepInfo();
   watchGit(context);
   log(`Active. Window id ${ctx.id}. Status dir ${ctx.paths.base}`);
 }
 
 function deactivate() {
   if (!ctx) return;
+  clearTimeout(ctx.activityTimer);
+  if (ctx.activeAt) ctx.workspaceState.update(ACTIVE_AT_KEY, ctx.activeAt);
   cleanUpOwnFiles();
   ctx = null;
 }

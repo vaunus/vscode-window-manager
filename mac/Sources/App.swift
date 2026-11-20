@@ -46,6 +46,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // window again until its frame changes, so it does not fight the window.
     var stuck: [(window: AXUIElement, frame: CGRect)] = []
     var cancellables: Set<AnyCancellable> = []
+    // For auto sleep: when the bar started, when each row last had the focus
+    // while the bar ran, and when the bar woke each window (by key).
+    let launchedAt = Date()
+    var lastFocused: [String: Date] = [:]
+    var wokenAt: [String: Date] = [:]
+    // Sleeping windows that the bar asked VSCode to open, by key.
+    var waking: [String: Date] = [:]
 
     var width: CGFloat { CGFloat(settings.width) }
 
@@ -96,16 +103,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             close: { NSApp.terminate(nil) },
             pick: { [weak self] row in self?.pick(row) },
             closeWindow: { [weak self] row in self?.closeWindow(row) },
+            sleep: { [weak self] row in self?.sleep(row) },
+            canSleep: { [weak self] row in self?.canSleep(row) ?? false },
             newWindow: { VSCodeWindows.newWindow() },
             move: { [weak self] from, to in self?.move(from, to) },
             toggleSettings: { [weak self] in self?.toggleSettings() },
             arrangeAll: { [weak self] in self?.arrangeAll() },
             hideAll: { [weak self] in self?.hideAll() },
-            resetLayout: { [weak self] in self?.resetLayout() },
+            resetOrder: { [weak self] in self?.resetOrder() },
             clearHotKey: { [weak self] in self?.setHotKey(nil) }
         )
-        panel.contentView = FirstMouseHostingView(rootView: BarView(
+        let host = FirstMouseHostingView(rootView: BarView(
             model: model, settings: settings, recorder: recorder, loginItem: loginItem, actions: actions))
+        // The bar sets the panel's size. Else SwiftUI sets the panel's minimum
+        // size from the content. With the settings open, that is taller than
+        // the screen, and the settings go below the bottom of the screen.
+        host.sizingOptions = []
+        panel.contentView = host
 
         // Resize the bar and the VSCode windows when the width changes.
         settings.$width.dropFirst().removeDuplicates().sink { [weak self] w in
@@ -250,7 +264,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func pick(_ row: Row) {
+        if row.asleep {
+            wake(row)
+            return
+        }
         model.activeId = row.id
+        lastFocused[row.id] = Date()
         // Recolor the cover in the same step as the switch, so the old
         // window's color does not flash.
         coverRowId = row.id
@@ -280,19 +299,104 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // Close a VSCode window. It can stay behind another window. If it is
-    // still open a moment later, it is probably asking to save files, so it
-    // comes to the front to show the question.
+    // Close a VSCode window. A sleeping row goes away.
     func closeWindow(_ row: Row) {
-        guard let ax = window(for: row), VSCodeWindows.close(ax) else { return }
+        if row.asleep {
+            settings.sleeping.removeAll { $0.key == row.key }
+            model.rows = allRows()
+        } else {
+            closeVSCodeWindow(row, show: true)
+        }
+    }
+
+    // The window can stay behind another window. If it is still open a
+    // moment later, it is probably asking to save files. show: then it comes
+    // to the front to show the question.
+    @discardableResult
+    func closeVSCodeWindow(_ row: Row, show: Bool) -> Bool {
+        guard let ax = window(for: row), VSCodeWindows.close(ax) else { return false }
         // Another VSCode window gets the focus.
         restoreCursor()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self, VSCodeWindows.frame(ax) != nil else { return }
-                self.pick(row)
+        if show {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, VSCodeWindows.frame(ax) != nil else { return }
+                    self.pick(row)
+                }
             }
         }
+        return true
+    }
+
+    // A sleeping window: VSCode closed it to free its memory, and its row
+    // stays. Not the last open window, because the bar hides while VSCode
+    // has no windows. Then there is no row to click to wake the others.
+    func canSleep(_ row: Row) -> Bool {
+        !row.asleep && row.window.canReopen && model.rows.contains { $0.id != row.id && !$0.asleep }
+    }
+
+    // auto: the bar does it by itself, so a save question stays behind.
+    func sleep(_ row: Row, auto: Bool = false) {
+        guard canSleep(row), closeVSCodeWindow(row, show: !auto) else { return }
+        settings.sleeping = settings.sleeping.filter { $0.key != row.key } + [SleepingWindow(row.window, at: Date())]
+    }
+
+    // VSCode opens the folder again, with the tabs it had.
+    func wake(_ row: Row) {
+        guard let s = settings.sleeping.first(where: { $0.key == row.key }), let target = s.target else { return }
+        waking[s.key] = Date()
+        wokenAt[s.key] = Date()
+        VSCodeWindows.open(target)
+        model.rows = allRows()
+    }
+
+    // Auto sleep: close the windows that nobody used for the set time. Not
+    // the window in use, and not a window with unsaved files, something that
+    // runs in a terminal or a task, or a Claude session that works or waits
+    // for you. A window from an old extension does not say, so it stays.
+    // The bar finds a window by its title, so two windows with the same name
+    // can be mixed up. They stay too, so the wrong one does not close.
+    func autoSleep(now: Date = Date()) {
+        lastFocused = lastFocused.filter { id, _ in model.rows.contains { $0.id == id } }
+        wokenAt = wokenAt.filter { key, _ in model.rows.contains { $0.key == key } }
+        guard settings.sleepAfterHours > 0, model.trusted, let active = model.activeId,
+              model.rows.contains(where: { $0.id == active }) else { return }
+        let limit = TimeInterval(settings.sleepAfterHours * 3600)
+        let awake = model.rows.filter { !$0.asleep }
+        for row in awake where row.id != active && row.window.unsaved == false && row.window.busy == false
+            && row.state < .working && now.timeIntervalSince(lastUse(row)) >= limit
+            && !awake.contains(where: { $0.id != row.id && $0.name == row.name }) {
+            sleep(row, auto: true)
+        }
+    }
+
+    // When the window was last used: it had the focus, something changed in
+    // it (the extension keeps both from before the bar started), the bar
+    // woke it, or a Claude session had news. So a window not used for the
+    // set time before the bar started sleeps soon after the bar starts. If
+    // none of these is known: when the window or the bar started, whichever
+    // is later.
+    func lastUse(_ row: Row) -> Date {
+        let known = [row.window.usedAt, row.window.activeAt, lastFocused[row.id], wokenAt[row.key], row.lastActivity]
+            .compactMap { $0 }
+        return known.max() ?? max(row.window.startedAt ?? launchedAt, launchedAt)
+    }
+
+    // The rows of the open windows and of the sleeping ones, in the saved order.
+    func allRows(now: Date = Date()) -> [Row] {
+        let live = loadRows(now: now, idleAfter: settings.idleAfter)
+        // A sleeping window is awake when VSCode opened it after its sleep.
+        // A window still open 10 s after its sleep did not close (the user
+        // said no to a save question), so it is awake too.
+        let sleeping = settings.sleeping.filter { s in
+            !live.contains { $0.key == s.key && (($0.window.startedAt ?? .distantPast) > s.sleptAt || now.timeIntervalSince(s.sleptAt) > 10) }
+        }
+        if sleeping != settings.sleeping { settings.sleeping = sleeping }
+        waking = waking.filter { key, t in now.timeIntervalSince(t) < 30 && sleeping.contains { $0.key == key } }
+        // While a window closes, its open row shows.
+        let liveKeys = Set(live.map(\.key))
+        let asleep = sleeping.filter { !liveKeys.contains($0.key) }.map { $0.row(waking: waking[$0.key] != nil, now: now) }
+        return settings.ordered(live + asleep)
     }
 
     // Empty windows have no saved place.
@@ -313,9 +417,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateVisibility()
     }
 
-    func resetLayout() {
-        settings.resetLayout()
-        model.rows = settings.ordered(loadRows())
+    func resetOrder() {
+        settings.resetOrder()
+        model.rows = allRows()
     }
 
     // Settings need focus (color picker, drag and drop, shortcut keys).
@@ -340,18 +444,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if windowFiles == nil {
             windowFiles = FolderWatcher(path: statusDir() + "/windows") { [weak self] in self?.windowFilesChanged() }
         }
-        model.rows = settings.ordered(loadRows())
+        model.rows = allRows()
         linkEmptyWindow()
         ticks += 1
         if ticks % 3 == 1 { refreshArrangedRows() }
         updateActive()
+        // Often, so windows not used for the set time sleep soon after the bar starts.
+        if ticks % 5 == 0 { autoSleep() }
         updateVisibility()
     }
 
     // A window file changed, for example new title bar colors while a VS
     // Code modal opens. Recolor the cover at once, then check the rest.
     func windowFilesChanged() {
-        model.rows = settings.ordered(loadRows())
+        model.rows = allRows()
         linkEmptyWindow()
         recolorCoverNow()
         updateSoon()
@@ -411,6 +517,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier,
               let ax = VSCodeWindows.focusedWindow(app) else { return }
         model.activeId = row(for: ax)?.id
+        if let id = model.activeId { lastFocused[id] = Date() }
     }
 
     // The row of a VSCode window: a known empty window, or the folder row
@@ -422,7 +529,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func folderRow(for ax: AXUIElement) -> Row? {
         model.rows
-            .filter { !$0.window.empty }
+            .filter { !$0.window.empty && !$0.asleep }
             .map { ($0, VSCodeWindows.score(ax, $0.window)) }
             .filter { $0.1 > 0 }
             .max { $0.1 < $1.1 }?.0
@@ -431,7 +538,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // The VSCode window of a row. For an empty row that the bar does not
     // know yet: a window that no other row has.
     func window(for row: Row) -> AXUIElement? {
-        guard let app = VSCodeWindows.app() else { return nil }
+        guard !row.asleep, let app = VSCodeWindows.app() else { return nil }
         guard row.window.empty else { return VSCodeWindows.find(app, row.window) }
         if let key = emptyRows.first(where: { $0.value == row.id })?.key { return key.element }
         guard let ax = VSCodeWindows.windows(app).first(where: { self.row(for: $0) == nil }) else { return nil }

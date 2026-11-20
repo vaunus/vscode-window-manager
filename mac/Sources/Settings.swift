@@ -65,6 +65,18 @@ final class Settings: ObservableObject {
     @Published var order: [String] { didSet { UserDefaults.standard.set(order, forKey: "order") } }
     // Row key -> color name.
     @Published var colors: [String: String] { didSet { UserDefaults.standard.set(colors, forKey: "colors") } }
+    // Auto sleep: close a window after this many hours not used. 0 is never.
+    static let sleepChoices = [1, 4, 8, 12, 24, 72, 0]
+    @Published var sleepAfterHours: Int { didSet { UserDefaults.standard.set(sleepAfterHours, forKey: "sleepAfterHours") } }
+    // After a change, a window shows "working" for this many minutes, then
+    // "idle". A green "done" tick turns grey after the same time.
+    static let idleChoices = [5, 15, 30, 60]
+    @Published var idleAfterMinutes: Int { didSet { UserDefaults.standard.set(idleAfterMinutes, forKey: "idleAfterMinutes") } }
+    var idleAfter: TimeInterval { TimeInterval(idleAfterMinutes * 60) }
+    // Windows the bar closed to free their memory.
+    @Published var sleeping: [SleepingWindow] {
+        didSet { UserDefaults.standard.set(try? JSONEncoder().encode(sleeping), forKey: "sleeping") }
+    }
     @Published var hotKey: HotKeySpec? {
         didSet {
             if let hotKey, let data = try? JSONEncoder().encode(hotKey) {
@@ -83,9 +95,20 @@ final class Settings: ObservableObject {
         screen = d.string(forKey: "screen")
         order = d.stringArray(forKey: "order") ?? []
         colors = d.dictionary(forKey: "colors") as? [String: String] ?? [:]
+        sleepAfterHours = Self.choice(d, "sleepAfterHours", in: Self.sleepChoices, default: 4)
+        idleAfterMinutes = Self.choice(d, "idleAfterMinutes", in: Self.idleChoices, default: 15)
+        sleeping = d.data(forKey: "sleeping").flatMap { try? JSONDecoder().decode([SleepingWindow].self, from: $0) } ?? []
         hotKey = d.object(forKey: "hotKey") == nil
             ? Self.defaultHotKey
             : d.data(forKey: "hotKey").flatMap { try? JSONDecoder().decode(HotKeySpec.self, from: $0) }
+    }
+
+    // The saved choice. The default when none is saved, or when the saved
+    // value is not a choice now (for example "1 hour" from an older version).
+    private static func choice(_ d: UserDefaults, _ key: String, in choices: [Int], default value: Int) -> Int {
+        guard d.object(forKey: key) != nil else { return value }
+        let saved = d.integer(forKey: key)
+        return choices.contains(saved) ? saved : value
     }
 
     // Empty windows first, oldest first. Then the rows in the saved order.
@@ -115,9 +138,9 @@ final class Settings: ObservableObject {
         order = keys + order.filter { !keys.contains($0) }
     }
 
-    func resetLayout() {
+    // The colors stay.
+    func resetOrder() {
         order = []
-        colors = [:]
     }
 }
 

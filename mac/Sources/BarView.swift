@@ -116,12 +116,14 @@ struct BarActions {
     let close: () -> Void
     let pick: (Row) -> Void
     let closeWindow: (Row) -> Void
+    let sleep: (Row) -> Void
+    let canSleep: (Row) -> Bool
     let newWindow: () -> Void
     let move: (String, String) -> Void
     let toggleSettings: () -> Void
     let arrangeAll: () -> Void
     let hideAll: () -> Void
-    let resetLayout: () -> Void
+    let resetOrder: () -> Void
     let clearHotKey: () -> Void
 }
 
@@ -150,8 +152,20 @@ struct Spinner: View {
 struct StatusDot: View {
     let state: ClaudeState
     var quiet = false
+    var activity = WindowActivity.none
 
     var body: some View {
+        if activity != .none {
+            // The window's own work: like the idle dot, but solid and bright.
+            Circle().fill(Color.primary).frame(width: 6, height: 6)
+                .frame(width: 9, height: 9)
+        } else {
+            claudeDot
+        }
+    }
+
+    @ViewBuilder
+    private var claudeDot: some View {
         switch state {
         case .needsInput:
             Circle().fill(Color.blue).frame(width: 9, height: 9)
@@ -162,10 +176,12 @@ struct StatusDot: View {
                 Spinner()
             }
         case .done:
-            Image(systemName: "checkmark").font(.system(size: 9, weight: .bold))
+            Image(systemName: "checkmark").font(.system(size: 11, weight: .bold))
                 .foregroundStyle(quiet ? Color.secondary : Color.green)
         case .idle, .none:
-            Circle().stroke(Color.secondary, lineWidth: 1).frame(width: 9, height: 9)
+            // A small faint dot. The outer frame keeps the same space as the other states.
+            Circle().fill(Color.secondary.opacity(0.5)).frame(width: 6, height: 6)
+                .frame(width: 9, height: 9)
         }
     }
 }
@@ -248,8 +264,11 @@ struct RowView: View {
                     Image(systemName: "line.3.horizontal")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(Color.secondary)
+                } else if row.asleep {
+                    Image(systemName: "moon.zzz").font(.system(size: 11))
+                        .foregroundStyle(Color.secondary)
                 } else {
-                    StatusDot(state: row.state, quiet: row.quiet)
+                    StatusDot(state: row.state, quiet: row.quiet, activity: row.activity)
                 }
             }
             .frame(width: 12, height: 15)
@@ -262,7 +281,7 @@ struct RowView: View {
                         .truncationMode(.middle)
                     Spacer(minLength: 0)
                     if !editing {
-                        RowCloseButton(visible: hovering, onClose: onClose)
+                        RowCloseButton(visible: hovering, asleep: row.asleep, onClose: onClose)
                     }
                 }
                 // Branch and status lines are always there, so all rows have the same height.
@@ -281,7 +300,7 @@ struct RowView: View {
                 .font(.system(size: 10))
                 .foregroundStyle(Color.secondary)
                 .opacity(row.branch == nil ? 0.5 : 1)
-                Text(row.text.isEmpty ? "no session" : row.text + (row.extraCount > 0 ? " +\(row.extraCount)" : ""))
+                statusText
                     .font(.system(size: 10))
                     .foregroundStyle(row.state == .needsInput ? Color.blue : Color.secondary)
                     .opacity(row.text.isEmpty ? 0.5 : 1)
@@ -298,6 +317,8 @@ struct RowView: View {
         // Room for the color line on all rows, so the text of all rows lines up.
         .padding(.leading, rowLeading)
         .padding(.trailing, 6)
+        // A sleeping window's row is dim. Its color line is dim too: see background.
+        .opacity(row.asleep ? 0.5 : 1)
         // Dark text on a light tab.
         .environment(\.colorScheme, tab.map(isLight) == true ? .light : .dark)
         .background { background }
@@ -317,7 +338,19 @@ struct RowView: View {
         }
         .help(editing
             ? "Drag to reorder. Click to set a color."
-            : ([row.name] + row.window.rawFolders + [row.branch ?? "", row.text]).filter { !$0.isEmpty }.joined(separator: "\n"))
+            : ([row.name] + row.window.rawFolders + [row.branch ?? "", row.text, row.asleep ? "Click to wake." : ""])
+                .filter { !$0.isEmpty }.joined(separator: "\n"))
+    }
+
+    // For example "done · 5m +1". A running command shows a terminal icon in
+    // place of a time, because it does not end by itself.
+    private var statusText: Text {
+        if row.text.isEmpty { return Text(verbatim: "no session") }
+        let extra = row.extraCount > 0 ? " +\(row.extraCount)" : ""
+        if row.activity == .terminal {
+            return Text("\(row.text) · \(Image(systemName: "terminal"))\(extra)")
+        }
+        return Text(verbatim: row.text + extra)
     }
 
     // Its center is on the center of the drag handle's column: 12 pt wide,
@@ -352,6 +385,7 @@ struct RowView: View {
                     .frame(width: 3)
                     .padding(.vertical, 4)
                     .padding(.leading, 2)
+                    .opacity(row.asleep ? 0.5 : 1)
             }
         }
         .padding(.trailing, tab == nil ? 0 : -rowInset)
@@ -405,24 +439,12 @@ struct SettingsDrawer: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("Width").font(.system(size: 11))
-                HStack(spacing: 0) {
-                    Button { changeWidth(by: -Settings.widthStep) } label: {
-                        Image(systemName: "minus")
-                    }
-                    .buttonStyle(IconButtonStyle())
-                    .disabled(settings.width <= Settings.minWidth)
-                    .help("Narrower")
-                    Spacer()
-                    Text("\(Int(settings.width)) px")
-                        .font(.system(size: 11).monospacedDigit())
-                    Spacer()
-                    Button { changeWidth(by: Settings.widthStep) } label: {
-                        Image(systemName: "plus")
-                    }
-                    .buttonStyle(IconButtonStyle())
-                    .disabled(settings.width >= Settings.maxWidth)
-                    .help("Wider")
-                }
+                StepperRow(value: "\(Int(settings.width)) px",
+                           canDecrease: settings.width > Settings.minWidth,
+                           canIncrease: settings.width < Settings.maxWidth,
+                           decrease: { changeWidth(by: -Settings.widthStep) },
+                           increase: { changeWidth(by: Settings.widthStep) },
+                           decreaseHelp: "Narrower", increaseHelp: "Wider")
             }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -481,14 +503,20 @@ struct SettingsDrawer: View {
                 }
             }
 
-            Text("Drag rows to reorder. Click a row to set its color.")
-                .font(.system(size: 10))
-                .foregroundStyle(Color.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 4) {
+                titleWithInfo("Tabs idle after",
+                              info: "After a change, a tab shows working for this time, then idle. A green done tick turns grey after this time too.")
+                choicePicker("Window idle after", Settings.idleChoices, $settings.idleAfterMinutes) { durationLabel(minutes: $0) }
+            }
 
             VStack(alignment: .leading, spacing: 4) {
-                Button("Arrange windows", action: actions.arrangeAll)
-                Button("Reset order", action: actions.resetLayout)
+                titleWithInfo("Tabs sleep after",
+                              info: "Closes idle VSCode windows to free system memory. Active terminals or Claude sessions prevent windows from sleeping.")
+                choicePicker("Sleep windows after", Settings.sleepChoices, $settings.sleepAfterHours) { durationLabel(minutes: $0 * 60) }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Button("Reset tab order", action: actions.resetOrder)
             }
             .controlSize(.small)
         }
@@ -500,6 +528,101 @@ struct SettingsDrawer: View {
 
     private func changeWidth(by delta: Double) {
         settings.width = min(max(settings.width + delta, Settings.minWidth), Settings.maxWidth)
+    }
+
+    // A setting's title, and an info icon that shows the explanation on hover.
+    private func titleWithInfo(_ title: String, info: String) -> some View {
+        HStack(spacing: 4) {
+            Text(title).font(.system(size: 11))
+            InfoIcon(text: info)
+        }
+    }
+
+    // A dropdown with a list of times.
+    private func choicePicker(_ title: String, _ choices: [Int], _ value: Binding<Int>, label: @escaping (Int) -> String) -> some View {
+        Picker(title, selection: value) {
+            ForEach(choices, id: \.self) { Text(label($0)).tag($0) }
+        }
+        .labelsHidden()
+        .controlSize(.small)
+        .fixedSize()
+    }
+}
+
+// An info icon. Its text shows in a popover while the mouse is on the icon.
+// Not .help(): those tooltips do not show in the bar's panel.
+struct InfoIcon: View {
+    let text: String
+    @State private var hovering = false
+    @State private var showing = false
+
+    var body: some View {
+        Image(systemName: "info.circle")
+            .font(.system(size: 10))
+            .foregroundStyle(hovering ? Color.primary : Color.secondary)
+            .contentShape(Rectangle())
+            .onHover { h in
+                hovering = h
+                guard h else {
+                    showing = false
+                    return
+                }
+                // A short wait, like a tooltip, so a mouse that only passes over does not open it.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    if hovering { showing = true }
+                }
+            }
+            .popover(isPresented: $showing, arrowEdge: .trailing) {
+                Text(text)
+                    .font(.system(size: 11))
+                    .frame(width: 200, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(10)
+                    // In a shorter popover, macOS joins the point to the
+                    // rounded corners, so it looks large and round. At this
+                    // height it is small and sharp, like the color picker's.
+                    .frame(minHeight: 60)
+            }
+    }
+}
+
+// A time for a setting: 5m, 4h, 1d. 0 is "Never".
+func durationLabel(minutes m: Int) -> String {
+    if m == 0 { return "Never" }
+    if m % (24 * 60) == 0 { return "\(m / (24 * 60))d" }
+    if m % 60 == 0 { return "\(m / 60)h" }
+    return "\(m)m"
+}
+
+// A value between − and + buttons.
+struct StepperRow: View {
+    let value: String
+    let canDecrease: Bool
+    let canIncrease: Bool
+    let decrease: () -> Void
+    let increase: () -> Void
+    let decreaseHelp: String
+    let increaseHelp: String
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Button(action: decrease) {
+                Image(systemName: "minus")
+            }
+            .buttonStyle(IconButtonStyle())
+            .disabled(!canDecrease)
+            .help(decreaseHelp)
+            Spacer()
+            Text(value)
+                .font(.system(size: 11).monospacedDigit())
+            Spacer()
+            Button(action: increase) {
+                Image(systemName: "plus")
+            }
+            .buttonStyle(IconButtonStyle())
+            .disabled(!canIncrease)
+            .help(increaseHelp)
+        }
     }
 }
 
@@ -613,7 +736,16 @@ struct BarView: View {
         }
         // A row's menu replaces the bar's menu, so it has the bar's items too.
         .contextMenu {
-            Button("Close Window") { actions.closeWindow(row) }
+            if row.asleep {
+                Button("Wake Window") { actions.pick(row) }
+                Button("Remove") { actions.closeWindow(row) }
+            } else {
+                if row.window.canReopen {
+                    Button("Sleep Window") { actions.sleep(row) }
+                        .disabled(!actions.canSleep(row))
+                }
+                Button("Close Window") { actions.closeWindow(row) }
+            }
             Divider()
             BarMenuItems(actions: actions)
         }
@@ -765,8 +897,10 @@ struct RowIconSlot<Content: View>: View {
 // The x shows while the mouse is over the row. A click on it shows a red
 // "Close" button in its place. A click on that closes the window. It goes
 // back to the x after 3 seconds, or when the mouse leaves the row.
+// asleep: the window is closed already, so the button removes the row.
 struct RowCloseButton: View {
     let visible: Bool
+    var asleep = false
     let onClose: () -> Void
     @State private var armedAt: Date?
 
@@ -778,17 +912,19 @@ struct RowCloseButton: View {
                     // The second click of a double-click is too soon.
                     if Date().timeIntervalSince(armedAt) > NSEvent.doubleClickInterval { onClose() }
                 } label: {
-                    Text("Close")
+                    Text(asleep ? "Remove" : "Close")
                 }
                 .buttonStyle(ConfirmCloseButtonStyle())
-                .help("Click again to close this VSCode window. VSCode asks first if files are not saved.")
+                .help(asleep
+                    ? "Click again to remove this sleeping window from the bar."
+                    : "Click again to close this VSCode window. VSCode asks first if files are not saved.")
             } else {
                 Button { armedAt = Date() } label: {
                     Image(systemName: "xmark")
                 }
                 .buttonStyle(RowIconButtonStyle())
                 .opacity(visible ? 1 : 0)
-                .help("Close this VSCode window")
+                .help(asleep ? "Remove this sleeping window" : "Close this VSCode window")
             }
         }
         .onChange(of: visible) { _, v in

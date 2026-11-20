@@ -250,6 +250,14 @@ enum VSCodeWindows {
         runCLI(bundle, [target])
     }
 
+    // Open a folder or a workspace file, like "code <path>". VSCode shows
+    // the tabs it had. Starts VSCode if it is not running.
+    static func open(_ path: String) {
+        guard let bundle = app()?.bundleURL ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: vscodeBundleId)
+        else { return }
+        runCLI(bundle, [path])
+    }
+
     // Open a new, empty VSCode window. It shows VSCode's Welcome page,
     // where the user picks a folder. If VSCode is not running, start it:
     // it then opens its own windows.

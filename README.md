@@ -2,19 +2,19 @@
 
 If you, like me, would prefer to keep using VSCode in an age of agentic AI tooling.
 
-VSCode Window Manager is a side bar app for macOS that gathers your open VSCode windows letting you quickly see their working state and switch between them. Featuring built in support for the Claude VSCode extension.
+VSCode Window Manager is a side bar app for macOS that gathers your open VSCode windows letting you quickly see their working state and switch between them. Featuring built in support for Claude Code.
 
 https://github.com/user-attachments/assets/b3a2af99-814f-4506-a58a-b553eb49095d
 
 > **Live Claude Code status.** Each row shows what Claude Code is doing in that window, as it happens: **working**, **needs you** (a permission prompt or a question), or **done**.
 
-- One row per VSCode window, with its git branch.
+- One row per VSCode window, with its git branch and Claude status.
 - Click a row to bring that window to the front.
 - New VSCode windows are gathered as soon as they open.
-- A global shortcut brings VSCode windows and the bar to the front.
+- Global shortcut to bring the manager to the front.
 - Minimising hides all VSCode windows at once.
-- Drag rows to reorder them, and give them colors so they're easier to find.
-- Add or close VSCode windows easily.
+- Drag rows to reorder them, or give them colors so they're easier to find.
+- Automatically close idle VSCode windows to free system memory.
 - Multi monitor support, pick which screen the window manager locks to.
 
 ## Requirements
@@ -71,7 +71,7 @@ This removes the app, the VSCode extension, the status hooks, and the saved sett
 
 ## How it works
 
-- The VSCode extension writes each window's folders to `~/.claude/window-status/windows/`.
+- The VSCode extension writes each window's folders to `~/.claude/window-status/windows/`, with when something last changed in it and if a terminal command runs. It never stores file contents or commands.
 - A Claude Code hook writes each session's state to `~/.claude/window-status/sessions/`. It stores session ids, folder paths and state only. It never stores prompts or tool input.
 - The bar reads both folders once per second and matches each session to the window that holds its folder.
 

@@ -34,3 +34,33 @@ test('the changes of all repositories add up', () => {
 test('a missing group or state does not count', () => {
   assert.equal(countChanges([{ state: { workingTreeChanges: [{}, {}] } }, {}, null]), 2);
 });
+
+const { changeSignature, changedPaths } = require('../lib/git');
+
+const uri = (p) => ({ fsPath: p, toString: () => `file://${p}` });
+const gitRepo = (commit, groups) => ({ state: { HEAD: { commit }, ...groups } });
+
+test('signature: the same files in another order give the same value', () => {
+  const a = gitRepo('c1', { workingTreeChanges: [{ status: 5, uri: uri('/r/a') }, { status: 5, uri: uri('/r/b') }] });
+  const b = gitRepo('c1', { workingTreeChanges: [{ status: 5, uri: uri('/r/b') }, { status: 5, uri: uri('/r/a') }] });
+  assert.equal(changeSignature(a), changeSignature(b));
+});
+
+test('signature: a new changed file, a staged file or a new commit changes it', () => {
+  const base = gitRepo('c1', { workingTreeChanges: [{ status: 5, uri: uri('/r/a') }] });
+  const more = gitRepo('c1', { workingTreeChanges: [{ status: 5, uri: uri('/r/a') }, { status: 7, uri: uri('/r/b') }] });
+  const staged = gitRepo('c1', { indexChanges: [{ status: 0, uri: uri('/r/a') }] });
+  const commit = gitRepo('c2', { workingTreeChanges: [{ status: 5, uri: uri('/r/a') }] });
+  for (const other of [more, staged, commit]) assert.notEqual(changeSignature(base), changeSignature(other));
+});
+
+test('signature: a missing repository or state gives an empty value', () => {
+  assert.equal(changeSignature(null), '');
+  assert.equal(changeSignature({}), '');
+});
+
+test('changed paths: all groups of all repositories, no duplicates', () => {
+  const r1 = gitRepo('c', { indexChanges: [{ uri: uri('/r/a') }], workingTreeChanges: [{ uri: uri('/r/a') }] });
+  const r2 = gitRepo('c', { untrackedChanges: [{ uri: uri('/s/new') }], mergeChanges: [{ uri: uri('/s/m') }] });
+  assert.deepEqual([...changedPaths([r1, r2, null])].sort(), ['/r/a', '/s/m', '/s/new']);
+});
