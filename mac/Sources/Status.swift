@@ -324,11 +324,18 @@ func loadRows(now: Date = Date(), idleAfter: TimeInterval) -> [Row] {
     }
 
     return windows.map { w in
-        // Most urgent first, then oldest first.
+        // Most urgent first, then oldest first: the one that waits longest.
+        // For "done", newest first: the tick and its age are for the last
+        // session to finish, and so are the changes after it.
         let list = (groups[w.id] ?? []).sorted { a, b in
             let ra = sortRank(a, now: now)
             let rb = sortRank(b, now: now)
-            return ra != rb ? ra > rb : (a.updatedAt ?? .distantFuture) < (b.updatedAt ?? .distantFuture)
+            if ra != rb { return ra > rb }
+            // A session with no time goes last.
+            if a.state == .done {
+                return (a.updatedAt ?? .distantPast) > (b.updatedAt ?? .distantPast)
+            }
+            return (a.updatedAt ?? .distantFuture) < (b.updatedAt ?? .distantFuture)
         }
         let top = list.first
         // Idle sessions never got a prompt.
