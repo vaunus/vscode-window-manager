@@ -260,9 +260,7 @@ struct RowView: View {
     let editing: Bool
     @Binding var colorName: String?
     let onPick: () -> Void
-    let onClose: () -> Void
     @State private var picking = false
-    @State private var hovering = false
     // The mouse is on the color button.
     @State private var paletteHovering = false
 
@@ -283,16 +281,10 @@ struct RowView: View {
             .frame(width: 12, height: 15)
 
             VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .top, spacing: 4) {
-                    Text(row.name)
-                        .font(.system(size: 12))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer(minLength: 0)
-                    if !editing {
-                        RowCloseButton(visible: hovering, asleep: row.asleep, onClose: onClose)
-                    }
-                }
+                Text(row.name)
+                    .font(.system(size: 12))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                 // Branch and status lines are always there, so all rows have the same height.
                 HStack(spacing: 3) {
                     if row.window.empty {
@@ -331,10 +323,8 @@ struct RowView: View {
         // Dark text on a light tab.
         .environment(\.colorScheme, tab.map(isLight) == true ? .light : .dark)
         .background { background }
-        // Out to the bar's edge, so the mouse stays on the row while it is
-        // on the close button.
+        // Out to the bar's edge, so a click there goes to the row.
         .contentShape(RowHitShape())
-        .onHover { hovering = $0 }
         // The drag hand while the settings are open, but not on the color
         // button. The row's cursor wins over the button's own cursor.
         .cursor(editing && !paletteHovering ? .openHand : .pointingHand)
@@ -732,8 +722,7 @@ struct BarView: View {
                 get: { settings.colors[row.key] },
                 set: { settings.colors[row.key] = $0 }
             ),
-            onPick: { actions.pick(row) },
-            onClose: { actions.closeWindow(row) }
+            onPick: { actions.pick(row) }
         )
         .background {
             if active {
@@ -742,7 +731,7 @@ struct BarView: View {
                 }
             }
         }
-        // A row's menu replaces the bar's menu, so it has the bar's items too.
+        // A row's menu replaces the bar's menu. It has only the row's items.
         .contextMenu {
             if row.asleep {
                 Button("Wake Window") { actions.pick(row) }
@@ -754,8 +743,6 @@ struct BarView: View {
                 }
                 Button("Close Window") { actions.closeWindow(row) }
             }
-            Divider()
-            BarMenuItems(actions: actions)
         }
         if model.settingsOpen && !row.window.empty {
             item
@@ -885,87 +872,8 @@ struct IconButtonStyle: ButtonStyle {
     }
 }
 
-// The place at the right of a row's name for the x. Its place stays, so the
-// name does not move. Not taller than the name, so the row keeps its height. The space
-// right of the icon's ink is the same as the space above it: about 7 pt, to
-// the tab's top line and to the bar's edge. The button goes 3 pt past the
-// row, into the space next to the bar's edge.
-struct RowIconSlot<Content: View>: View {
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        Color.clear
-            .frame(width: 16, height: 14)
-            .overlay(alignment: .trailing) { content }
-            .padding(.trailing, -9)
-    }
-}
-
-// A row's close button, so one click cannot close a window by accident.
-// The x shows while the mouse is over the row. A click on it shows a red
-// "Close" button in its place. A click on that closes the window. It goes
-// back to the x after 3 seconds, or when the mouse leaves the row.
-// asleep: the window is closed already, so the button removes the row.
-struct RowCloseButton: View {
-    let visible: Bool
-    var asleep = false
-    let onClose: () -> Void
-    @State private var armedAt: Date?
-
-    var body: some View {
-        // The red button is wider than the x and goes over the end of the name.
-        RowIconSlot {
-            if let armedAt {
-                Button {
-                    // The second click of a double-click is too soon.
-                    if Date().timeIntervalSince(armedAt) > NSEvent.doubleClickInterval { onClose() }
-                } label: {
-                    Text(asleep ? "Remove" : "Close")
-                }
-                .buttonStyle(ConfirmCloseButtonStyle())
-                .help(asleep
-                    ? "Click again to remove this sleeping window from the bar."
-                    : "Click again to close this VSCode window. VSCode asks first if files are not saved.")
-            } else {
-                Button { armedAt = Date() } label: {
-                    Image(systemName: "xmark")
-                }
-                .buttonStyle(RowIconButtonStyle())
-                .opacity(visible ? 1 : 0)
-                .help(asleep ? "Remove this sleeping window" : "Close this VSCode window")
-            }
-        }
-        .onChange(of: visible) { _, v in
-            if !v { armedAt = nil }
-        }
-        .task(id: armedAt) {
-            guard armedAt != nil else { return }
-            try? await Task.sleep(for: .seconds(3))
-            if !Task.isCancelled { armedAt = nil }
-        }
-    }
-}
-
-// The red "Close" button. White on red shows on light and dark tabs.
-struct ConfirmCloseButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(Color.white)
-            .padding(.horizontal, 6)
-            .frame(height: 16)
-            // Its full width, not the x's place.
-            .fixedSize()
-            .background(
-                RoundedRectangle(cornerRadius: 4).fill(Color.red.opacity(configuration.isPressed ? 0.75 : 1))
-            )
-            .contentShape(Rectangle())
-            .cursor(.pointingHand)
-    }
-}
-
-// The x and the color button: small, like the x on a VSCode editor tab.
-// The color button is in a row's bottom-left corner.
+// The color button in a row's bottom-left corner: small, like the x on a
+// VSCode editor tab.
 // Primary colors, so they show on light and dark tabs.
 struct RowIconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
