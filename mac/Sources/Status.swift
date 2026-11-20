@@ -88,7 +88,7 @@ struct SleepingWindow: Codable, Equatable {
     func row(waking: Bool, now: Date) -> Row {
         Row(window: window, state: .none,
             text: waking ? "waking…" : "asleep · \(formatAge(now.timeIntervalSince(sleptAt)))",
-            extraCount: 0, quiet: false, branch: rawFolders.first.flatMap(gitBranch), sleptAt: sleptAt)
+            quiet: false, branch: rawFolders.first.flatMap(gitBranch), sleptAt: sleptAt)
     }
 }
 
@@ -105,7 +105,6 @@ struct Row: Identifiable {
     let window: VSWindow
     let state: ClaudeState
     let text: String
-    let extraCount: Int        // other non-idle sessions, shown as "+N"
     let quiet: Bool            // no update for a while: working may be stopped, done is old
     let branch: String?
     // The last update of its Claude sessions that got a prompt.
@@ -332,13 +331,12 @@ func loadRows(now: Date = Date(), idleAfter: TimeInterval) -> [Row] {
             return ra != rb ? ra > rb : (a.updatedAt ?? .distantFuture) < (b.updatedAt ?? .distantFuture)
         }
         let top = list.first
-        // Idle sessions never got a prompt, so they do not count in "+N".
+        // Idle sessions never got a prompt.
         let active = list.filter { $0.state > .idle }
         let row = Row(
             window: w,
             state: top?.state ?? .none,
             text: sessionText(top, now: now),
-            extraCount: max(0, active.count - 1),
             quiet: isQuiet(top, now: now) || isOldDone(top, now: now, idleAfter: idleAfter),
             branch: w.rawFolders.first.flatMap(gitBranch),
             // Not idle sessions: VSCode starts them again when it opens.
@@ -376,7 +374,7 @@ func withWindowActivity(_ row: Row, claudeAt: Date?, now: Date, idleAfter: TimeI
     let changedAfterDone = w.activeAt.map { $0 > (claudeAt ?? .distantPast) + claudeChangesFor } == true
     let showsDone = row.state == .done && !changedAfterDone
     func working(_ activity: WindowActivity) -> Row {
-        Row(window: w, state: row.state, text: "working", extraCount: 0, quiet: false,
+        Row(window: w, state: row.state, text: "working", quiet: false,
             branch: row.branch, lastActivity: row.lastActivity, activity: activity)
     }
     if showsDone && !row.quiet { return row }
@@ -385,8 +383,8 @@ func withWindowActivity(_ row: Row, claudeAt: Date?, now: Date, idleAfter: TimeI
     if !showsDone, let at = w.activeAt, now.timeIntervalSince(at) < idleAfter { return working(.editing) }
     if showsDone { return row }
     if let at = w.activeAt {
-        return Row(window: w, state: .idle, text: "idle · \(formatAge(now.timeIntervalSince(at)))", extraCount: 0,
-                   quiet: false, branch: row.branch, lastActivity: row.lastActivity)
+        return Row(window: w, state: .idle, text: "idle · \(formatAge(now.timeIntervalSince(at)))", quiet: false,
+                   branch: row.branch, lastActivity: row.lastActivity)
     }
     return row
 }

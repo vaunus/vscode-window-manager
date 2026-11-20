@@ -14,7 +14,7 @@ let barNSColor = hexColor(barHex)
 let barColor = Color(nsColor: barNSColor)
 // Window border, like macOS in dark mode.
 let borderColor = Color(nsColor: hexColor(0x464646))
-// Claude's brand orange, for the working spinner.
+// Claude's brand orange, for the working spinner and the "needs you" text.
 let claudeOrange = Color(nsColor: hexColor(0xD97757))
 // VSCode's badge blue, as on the Source Control icon.
 let badgeBlue = Color(nsColor: hexColor(0x0078D4))
@@ -127,25 +127,34 @@ struct BarActions {
     let clearHotKey: () -> Void
 }
 
-// A 2/3 circle.
-struct Arc: View {
+// One star glyph, centered in the status dot's space. At 16 pt it is as
+// wide as that space. fixedSize keeps the frame from cutting it.
+struct Star: View {
+    let glyph: String
     var color = Color.primary
 
     var body: some View {
-        Circle()
-            .trim(from: 0, to: 0.67)
-            .stroke(color, style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
+        Text(glyph).font(.system(size: 16, weight: .bold)).foregroundStyle(color)
+            .fixedSize()
+            .frame(width: 10, height: 10)
     }
 }
 
-// The arc turns once per second, like VSCode's loading icon.
+// The star grows and shrinks, like Claude Code's spinner in the terminal.
+// The same glyphs, out and back. Slower than the terminal, which is
+// too busy for a small icon: one step each 200 ms.
 struct Spinner: View {
+    static let frames: [String] = {
+        let grow = ["·", "✢", "✳", "✶", "✻", "✽"]
+        return grow + grow.reversed()
+    }()
+    static let step = 0.2
+
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            Arc(color: claudeOrange).rotationEffect(.degrees(t.truncatingRemainder(dividingBy: 1) * 360))
+        TimelineView(.periodic(from: .now, by: Self.step)) { context in
+            let n = Int(context.date.timeIntervalSinceReferenceDate / Self.step)
+            Star(glyph: Self.frames[n % Self.frames.count], color: claudeOrange)
         }
-        .frame(width: 10, height: 10)
     }
 }
 
@@ -171,7 +180,7 @@ struct StatusDot: View {
             Circle().fill(Color.blue).frame(width: 9, height: 9)
         case .working:
             if quiet {
-                Arc().opacity(0.4).frame(width: 10, height: 10)
+                Star(glyph: "✻").opacity(0.4)
             } else {
                 Spinner()
             }
@@ -302,7 +311,7 @@ struct RowView: View {
                 .opacity(row.branch == nil ? 0.5 : 1)
                 statusText
                     .font(.system(size: 10))
-                    .foregroundStyle(row.state == .needsInput ? Color.blue : Color.secondary)
+                    .foregroundStyle(row.state == .needsInput ? claudeOrange : Color.secondary)
                     .opacity(row.text.isEmpty ? 0.5 : 1)
                     .lineLimit(1)
                     // Settings open: the color button in the row's bottom-left
@@ -342,15 +351,14 @@ struct RowView: View {
                 .filter { !$0.isEmpty }.joined(separator: "\n"))
     }
 
-    // For example "done · 5m +1". A running command shows a terminal icon in
+    // For example "done · 5m". A running command shows a terminal icon in
     // place of a time, because it does not end by itself.
     private var statusText: Text {
         if row.text.isEmpty { return Text(verbatim: "no session") }
-        let extra = row.extraCount > 0 ? " +\(row.extraCount)" : ""
         if row.activity == .terminal {
-            return Text("\(row.text) · \(Image(systemName: "terminal"))\(extra)")
+            return Text("\(row.text) · \(Image(systemName: "terminal"))")
         }
-        return Text(verbatim: row.text + extra)
+        return Text(verbatim: row.text)
     }
 
     // Its center is on the center of the drag handle's column: 12 pt wide,
