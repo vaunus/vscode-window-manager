@@ -78,6 +78,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // window (by key).
     let launchedAt = Date()
     var wokenAt: [String: Date] = [:]
+    // The "done" time of each Claude tab that a click already showed, by
+    // session id. A next click on the same "done" shows only the window.
+    var shownDone: [String: Date] = [:]
     // Sleeping windows that the bar asked VSCode to open, by key.
     var waking: [String: Date] = [:]
 
@@ -713,10 +716,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else if let app = VSCodeWindows.app(), !row.window.empty {
             VSCodeWindows.openWithCLI(app, row.window)
         }
-        // A Claude tab waits for you or is done: its window brings that tab
-        // to the front.
-        if row.state == .needsInput || row.state == .done, let session = row.tabSession {
-            requestTab(session, in: row.window)
+        // A Claude tab waits for you: its window brings that tab to the
+        // front on each click. A "done" tab comes to the front once.
+        if let session = row.tabSession {
+            if row.state == .needsInput {
+                requestTab(session, in: row.window)
+            } else if row.state == .done, let at = row.tabSessionAt, shownDone[session] != at {
+                shownDone[session] = at
+                requestTab(session, in: row.window)
+            }
         }
         restoreCursor()
     }

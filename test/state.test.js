@@ -149,6 +149,14 @@ test('a late Notification does not replace a recorded wait', () => {
   assert.equal(s.shouldSkipWrite(prev, { ...next, state: 'done' }, undefined, 'Notification'), false);
 });
 
+test('a late idle_prompt keeps the first done time', () => {
+  const prev = { projectDir: '/a', cwd: '/a', state: 'done', reason: 'error', detail: 'x', updatedAt: '2026-11-17T09:00:00.000Z' };
+  const next = { ...prev, reason: null, detail: null, updatedAt: '2026-11-17T09:01:00.000Z' };
+  assert.equal(s.shouldSkipWrite(prev, next, undefined, 'Notification'), true);
+  assert.equal(s.shouldSkipWrite(prev, next, undefined, 'Stop'), false);
+  assert.equal(s.shouldSkipWrite({ ...prev, state: 'working' }, next, undefined, 'Notification'), false);
+});
+
 test('isInside uses a path boundary', () => {
   assert.equal(s.isInside('/w/mega-mentor', '/w/mega-mentor'), true);
   assert.equal(s.isInside('/w/mega-mentor/src', '/w/mega-mentor'), true);

@@ -116,8 +116,10 @@ struct Row: Identifiable {
     // The window's own work shows instead of a Claude session's status.
     var activity: WindowActivity = .none
     // The shown session's id, when it is a Claude tab in this window. A
-    // click on "needs you" or a "done" tick shows that tab.
+    // click on "needs you" shows that tab. A "done" tick shows it once.
     var tabSession: String? = nil
+    // When that session last changed. A new time is a new "done".
+    var tabSessionAt: Date? = nil
     var asleep: Bool { sleptAt != nil }
     var id: String { window.id }
     var key: String { window.key }
@@ -363,6 +365,7 @@ func loadRows(now: Date = Date(), idleAfter: TimeInterval) -> [Row] {
             return (a.updatedAt ?? .distantFuture) < (b.updatedAt ?? .distantFuture)
         }
         let top = list.first
+        let tab = top.flatMap { $0.inTab && $0.hostPid == w.pid ? $0 : nil }
         // Idle sessions never got a prompt.
         let active = list.filter { $0.state > .idle }
         let row = Row(
@@ -373,7 +376,8 @@ func loadRows(now: Date = Date(), idleAfter: TimeInterval) -> [Row] {
             branch: w.rawFolders.first.flatMap(gitBranch),
             // Not idle sessions: VSCode starts them again when it opens.
             lastActivity: active.compactMap(\.updatedAt).max(),
-            tabSession: top.flatMap { $0.inTab && $0.hostPid == w.pid ? $0.id : nil }
+            tabSession: tab?.id,
+            tabSessionAt: tab?.updatedAt
         )
         return withWindowActivity(row, claudeAt: top?.updatedAt, now: now, idleAfter: idleAfter)
     }
