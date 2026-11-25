@@ -2,18 +2,18 @@
 
 If you, like me, would prefer to keep using VSCode in an age of agentic AI tooling.
 
-VSCode Window Manager is a side bar app for macOS that gathers your open VSCode windows letting you quickly see their working state and switch between them. Featuring built in support for Claude Code.
+VSCode Window Manager is a tab bar app for macOS that gathers your open VSCode windows letting you quickly see their working state and switch between them. Featuring built in support for Claude Code.
 
 https://github.com/user-attachments/assets/ce16364b-daf0-4db4-b90f-fe83bfc22365
 
-> **Live Claude Code status.** Each row shows what Claude Code is doing in that window, as it happens: **working**, **needs you** (a permission prompt or a question), or **done**.
+> **Live Claude Code status.** Each tab shows what Claude Code is doing in that window, as it happens: **working**, **needs you** (a permission prompt or a question), or **done**.
 
-- One row per VSCode window, with its git branch and Claude status.
-- Click a row to bring that window to the front.
+- One tab per VSCode window, with its git branch, changed files and Claude status. Choose in the settings: a bar across the top of the screen, or a side bar on the left. The branch, changed files and status can be hidden.
+- Click a tab to bring that window to the front.
 - New VSCode windows are gathered as soon as they open.
 - Global shortcut to bring the manager to the front.
 - Minimising hides all VSCode windows at once.
-- Drag rows to reorder them, or give them colors so they're easier to find.
+- Drag tabs to reorder them, or give them colors so they're easier to find.
 - Automatically close idle VSCode windows to free system memory.
 - The bar and its VSCode windows move as one window. Drag, resize or tile it.
 
