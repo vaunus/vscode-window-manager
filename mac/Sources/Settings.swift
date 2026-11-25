@@ -49,9 +49,9 @@ let rowColors: [RowColor] = [
 
 // Where the bar goes. The raw values are saved, so do not change them.
 enum TabLayout: String {
-    // Down the left side, a row per window with its branch and status.
+    // Down the left side, a row per window.
     case side
-    // Across the top of the screen, a slim tab per window.
+    // Across the top of the screen, a tab per window.
     case top
 }
 
@@ -68,6 +68,13 @@ final class Settings: ObservableObject {
 
     @Published var width: Double { didSet { UserDefaults.standard.set(width, forKey: "barWidth") } }
     @Published var layout: TabLayout { didSet { UserDefaults.standard.set(layout.rawValue, forKey: "tabLayout") } }
+    // What each row or tab shows under the name: the branch line, the count
+    // of uncommitted changes, and the status line.
+    @Published var showBranch: Bool { didSet { UserDefaults.standard.set(showBranch, forKey: "showBranch") } }
+    @Published var showChanges: Bool { didSet { UserDefaults.standard.set(showChanges, forKey: "showChanges") } }
+    @Published var showStatus: Bool { didSet { UserDefaults.standard.set(showStatus, forKey: "showStatus") } }
+    // The lines in each row or tab.
+    var lines: Int { 1 + (showBranch ? 1 : 0) + (showStatus ? 1 : 0) }
     // UUID of the screen for the bar. nil: the main screen.
     @Published var screen: String? { didSet { UserDefaults.standard.set(screen, forKey: "screen") } }
     // Where the user put the bar and the VSCode windows, in AX coordinates.
@@ -107,6 +114,9 @@ final class Settings: ObservableObject {
         let w = d.double(forKey: "barWidth")
         width = w == 0 ? 220 : min(max(w, Self.minWidth), Self.maxWidth)
         layout = d.string(forKey: "tabLayout").flatMap(TabLayout.init(rawValue:)) ?? .top
+        showBranch = d.object(forKey: "showBranch") as? Bool ?? true
+        showChanges = d.object(forKey: "showChanges") as? Bool ?? true
+        showStatus = d.object(forKey: "showStatus") as? Bool ?? true
         screen = d.string(forKey: "screen")
         group = (d.array(forKey: "group") as? [Double]).flatMap { $0.count == 4 ? CGRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) : nil }
         order = d.stringArray(forKey: "order") ?? []

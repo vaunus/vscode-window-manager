@@ -36,7 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var corners: NSPanel!
     var cover: NSPanel!
     // The bar's size: its height on top, its width on the left.
-    var barSize: CGFloat { VSCodeWindows.onTop ? barHeight : CGFloat(settings.width) }
+    var barSize: CGFloat { VSCodeWindows.onTop ? barHeight(lines: settings.lines) : CGFloat(settings.width) }
     // The tip under a tab. See BarModel.tip.
     var tipPanel: NSPanel!
     var timer: Timer?
@@ -169,6 +169,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.barChanged() } }
         }
         .store(in: &cancellables)
+        // The top bar's height follows the lines in a tab.
+        for line in [settings.$showBranch, settings.$showStatus] {
+            line.dropFirst().removeDuplicates().sink { [weak self] _ in
+                DispatchQueue.main.async { MainActor.assumeIsolated { if VSCodeWindows.onTop { self?.barChanged() } } }
+            }
+            .store(in: &cancellables)
+        }
 
         // Above the bar and the corner strip. Clicks pass through.
         tipPanel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -1188,7 +1195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var barStrip: NSRect {
         let f = panel.frame
         guard VSCodeWindows.onTop else { return f }
-        return NSRect(x: f.minX, y: f.maxY - barHeight, width: f.width, height: barHeight)
+        return NSRect(x: f.minX, y: f.maxY - barSize, width: f.width, height: barSize)
     }
 
     // VSCode came to the front or went behind: the window under the cover

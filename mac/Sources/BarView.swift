@@ -274,12 +274,103 @@ struct ColorGrid: View {
     }
 }
 
+// A window's name, branch and status lines, in a side row or a top tab.
+struct RowLines: View {
+    let row: Row
+    let showBranch: Bool
+    let showChanges: Bool
+    let showStatus: Bool
+    let editing: Bool
+    let pickColor: () -> Void
+    // The mouse is on the color button.
+    @Binding var paletteHovering: Bool
+
+    // With three lines, the color button fits under the drag handle.
+    // Else it goes at the end of the name line.
+    private var paletteUnderHandle: Bool { showBranch && showStatus }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 4) {
+                Text(row.name)
+                    .font(.system(size: 12))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if !showBranch { changes() }
+                if editing && !paletteUnderHandle {
+                    Spacer(minLength: 0)
+                    paletteButton.padding(.vertical, -1)
+                }
+            }
+            // All rows show the same lines, so all rows have the same height.
+            if showBranch {
+                HStack(spacing: 3) {
+                    if row.window.empty {
+                        Image(systemName: "folder").font(.system(size: 8))
+                        Text("no folder")
+                    } else {
+                        Image(systemName: "arrow.triangle.branch").font(.system(size: 8))
+                        Text(row.branch ?? "no repo").lineLimit(1).truncationMode(.middle)
+                        changes(leading: 1)
+                    }
+                }
+                .font(.system(size: 10))
+                .foregroundStyle(Color.secondary)
+                .opacity(row.branch == nil ? 0.5 : 1)
+            }
+            if showStatus {
+                statusText
+                    .font(.system(size: 10))
+                    .foregroundStyle(row.state == .needsInput ? claudeOrange : Color.secondary)
+                    .opacity(row.text.isEmpty ? 0.5 : 1)
+                    .lineLimit(1)
+                    // Settings open: the color button in the row's bottom-left
+                    // corner, in line with this line, under the drag handle.
+                    // Its center is on the center of the drag handle's column:
+                    // 12 pt wide, then 7 pt to the text. The button is 16 pt wide.
+                    .overlay(alignment: .leading) {
+                        if editing && paletteUnderHandle { paletteButton.offset(x: -(7 + 12 / 2) - 16 / 2) }
+                    }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func changes(leading: CGFloat = 0) -> some View {
+        if showChanges && row.window.changes > 0 {
+            ChangesBadge(count: row.window.changes).padding(.leading, leading)
+        }
+    }
+
+    // For example "done · 5m". A running command shows a terminal icon in
+    // place of a time, because it does not end by itself.
+    private var statusText: Text {
+        if row.text.isEmpty { return Text(verbatim: "no session") }
+        if row.activity == .terminal {
+            return Text("\(row.text) · \(Image(systemName: "terminal"))")
+        }
+        return Text(verbatim: row.text)
+    }
+
+    private var paletteButton: some View {
+        Button(action: pickColor) {
+            Image(systemName: "paintpalette").font(.system(size: 10))
+        }
+        .buttonStyle(RowIconButtonStyle())
+        .onHover { paletteHovering = $0 }
+        .help("Set a color")
+    }
+}
+
 struct RowView: View {
     let row: Row
     // The tab color (0xRRGGBB) of the selected row. Nil for other rows.
     let tab: Int?
     let color: Color?
     let editing: Bool
+    let showBranch: Bool
+    let showChanges: Bool
+    let showStatus: Bool
     @Binding var colorName: String?
     let onPick: () -> Void
     @State private var picking = false
@@ -302,38 +393,8 @@ struct RowView: View {
             }
             .frame(width: 12, height: 15)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(row.name)
-                    .font(.system(size: 12))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                // Branch and status lines are always there, so all rows have the same height.
-                HStack(spacing: 3) {
-                    if row.window.empty {
-                        Image(systemName: "folder").font(.system(size: 8))
-                        Text("no folder")
-                    } else {
-                        Image(systemName: "arrow.triangle.branch").font(.system(size: 8))
-                        Text(row.branch ?? "no repo").lineLimit(1).truncationMode(.middle)
-                        if row.window.changes > 0 {
-                            ChangesBadge(count: row.window.changes).padding(.leading, 1)
-                        }
-                    }
-                }
-                .font(.system(size: 10))
-                .foregroundStyle(Color.secondary)
-                .opacity(row.branch == nil ? 0.5 : 1)
-                statusText
-                    .font(.system(size: 10))
-                    .foregroundStyle(row.state == .needsInput ? claudeOrange : Color.secondary)
-                    .opacity(row.text.isEmpty ? 0.5 : 1)
-                    .lineLimit(1)
-                    // Settings open: the color button in the row's bottom-left
-                    // corner, in line with this line, under the drag handle.
-                    .overlay(alignment: .leading) {
-                        if editing { paletteButton }
-                    }
-            }
+            RowLines(row: row, showBranch: showBranch, showChanges: showChanges, showStatus: showStatus,
+                     editing: editing, pickColor: { picking = true }, paletteHovering: $paletteHovering)
             Spacer(minLength: 0)
         }
         .padding(.vertical, 5)
@@ -361,28 +422,6 @@ struct RowView: View {
             ? "Drag to reorder. Click to set a color."
             : ([row.name] + row.window.rawFolders + [row.branch ?? "", row.text, row.asleep ? "Click to wake." : ""])
                 .filter { !$0.isEmpty }.joined(separator: "\n"))
-    }
-
-    // For example "done · 5m". A running command shows a terminal icon in
-    // place of a time, because it does not end by itself.
-    private var statusText: Text {
-        if row.text.isEmpty { return Text(verbatim: "no session") }
-        if row.activity == .terminal {
-            return Text("\(row.text) · \(Image(systemName: "terminal"))")
-        }
-        return Text(verbatim: row.text)
-    }
-
-    // Its center is on the center of the drag handle's column: 12 pt wide,
-    // then 7 pt to the text. The button is 16 pt wide.
-    private var paletteButton: some View {
-        Button { picking = true } label: {
-            Image(systemName: "paintpalette").font(.system(size: 10))
-        }
-        .buttonStyle(RowIconButtonStyle())
-        .onHover { paletteHovering = $0 }
-        .help("Set a color")
-        .offset(x: -(7 + 12 / 2) - 16 / 2)
     }
 
     // The selected row is a tab of its VSCode window, like an index tab: out
@@ -480,6 +519,15 @@ struct SettingsDrawer: View {
                                decreaseHelp: "Narrower", increaseHelp: "Wider")
                 }
             }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle("Show branch", isOn: $settings.showBranch)
+                Toggle("Show changed files", isOn: $settings.showChanges)
+                Toggle("Show status", isOn: $settings.showStatus)
+            }
+            .toggleStyle(.checkbox)
+            .font(.system(size: 11))
+            .controlSize(.small)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("Bring to front").font(.system(size: 11))
@@ -765,6 +813,9 @@ struct BarView: View {
             // An empty window has no saved place or color, so it stays a
             // normal row while the settings are open.
             editing: model.settingsOpen && !row.window.empty,
+            showBranch: settings.showBranch,
+            showChanges: settings.showChanges,
+            showStatus: settings.showStatus,
             colorName: Binding(
                 get: { settings.colors[row.key] },
                 set: { settings.colors[row.key] = $0 }

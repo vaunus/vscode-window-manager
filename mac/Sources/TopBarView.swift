@@ -5,11 +5,11 @@ import UniformTypeIdentifiers
 // The bar across the top of the screen, with one tab per VSCode window.
 // BarView.swift has the bar down the left side, and the parts both share.
 
-// Height of the bar across the top of the VSCode windows. Small, so the
-// windows keep most of the screen.
-let barHeight: CGFloat = 30
+// Height of the bar across the top of the VSCode windows: the space above
+// the tabs, and room for a tab's lines.
+func barHeight(lines: Int) -> CGFloat { 16 + 16 * CGFloat(lines) }
 // Room under the bar for the settings while they are open.
-let settingsHeight: CGFloat = 340
+let settingsHeight: CGFloat = 400
 // Space between the top of the bar and the tabs.
 let tabTop: CGFloat = 4
 // Each tab gets an equal share of the bar, within these widths. Past the
@@ -64,14 +64,17 @@ struct TopTabShape: Shape {
     }
 }
 
-// One VSCode window as a tab: status, name and change count on one line.
-// The branch and the Claude status are in the tooltip.
+// One VSCode window as a tab, with the same lines as a side row. The
+// folders are in the tooltip.
 struct TopRowView: View {
     let row: Row
     // The tab color (0xRRGGBB) of the selected row. Nil for other rows.
     let tab: Int?
     let color: Color?
     let editing: Bool
+    let showBranch: Bool
+    let showChanges: Bool
+    let showStatus: Bool
     @Binding var colorName: String?
     let onPick: () -> Void
     // Shows or hides this tab's tip.
@@ -83,7 +86,7 @@ struct TopRowView: View {
     @State private var paletteHovering = false
 
     var body: some View {
-        HStack(alignment: .center, spacing: 6) {
+        HStack(alignment: .center, spacing: 7) {
             Group {
                 if editing {
                     Image(systemName: "line.3.horizontal")
@@ -98,20 +101,14 @@ struct TopRowView: View {
             }
             .frame(width: 12, height: 15)
 
-            Text(row.name)
-                .font(.system(size: 12))
-                .foregroundStyle(row.state == .needsInput ? claudeOrange : Color.primary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            RowLines(row: row, showBranch: showBranch, showChanges: showChanges, showStatus: showStatus,
+                     editing: editing, pickColor: { picking = true }, paletteHovering: $paletteHovering)
             Spacer(minLength: 0)
-            if editing {
-                paletteButton
-            } else if row.window.changes > 0 {
-                ChangesBadge(count: row.window.changes)
-            }
         }
         .padding(.leading, rowLeading)
         .padding(.trailing, 6)
+        // Room under the color line across the top.
+        .padding(.top, 4)
         .frame(maxHeight: .infinity)
         // A sleeping window's tab is dim. Its color line is dim too: see background.
         .opacity(row.asleep ? 0.5 : 1)
@@ -159,22 +156,13 @@ struct TopRowView: View {
         return row.activity == .terminal ? "\(row.text) · terminal" : row.text
     }
 
-    private var paletteButton: some View {
-        Button { picking = true } label: {
-            Image(systemName: "paintpalette").font(.system(size: 10))
-        }
-        .buttonStyle(RowIconButtonStyle())
-        .onHover { paletteHovering = $0 }
-        .help("Set a color")
-    }
-
     // The selected tab is part of its VSCode window, like an index tab: down
     // to the bottom of the bar, where it joins the window with rounded inner
     // corners. A line in the window border color goes around it, so the tab
     // shows when the window is the same color as the bar. The parts over the
     // window's border are outside the bar. The corner strip draws them.
     private var background: some View {
-        ZStack(alignment: .leading) {
+        ZStack(alignment: .top) {
             if let tab {
                 TopTabShape(fill: true).fill(Color(nsColor: hexColor(tab)))
                 TopTabShape().stroke(borderColor, lineWidth: 1)
@@ -183,13 +171,13 @@ struct TopRowView: View {
                 UnevenRoundedRectangle(topLeadingRadius: 6, topTrailingRadius: 6, style: .circular)
                     .fill(Color.white.opacity(hovering ? 0.06 : 0))
             }
-            // A row's color is only this line.
+            // A tab's color is only this line, across its top.
             if let color {
                 RoundedRectangle(cornerRadius: 1.5)
                     .fill(color)
-                    .frame(width: 3)
-                    .padding(.vertical, 5)
-                    .padding(.leading, 2)
+                    .frame(height: 3)
+                    .padding(.horizontal, 5)
+                    .padding(.top, 2)
                     .opacity(row.asleep ? 0.5 : 1)
             }
         }
@@ -206,21 +194,22 @@ struct TopBarView: View {
     @State private var tabFrame: CGRect?
     @State private var listFrame = CGRect.zero
 
+    private var height: CGFloat { barHeight(lines: settings.lines) }
+
     var body: some View {
         // The bar on top. While the settings are open, the panel is taller
         // and they show under the bar, on the right, below the gear button.
+        // Not in an HStack: there, the drawer's divider turns vertical.
         VStack(spacing: 0) {
             bar
             if model.settingsOpen {
-                HStack {
-                    Spacer(minLength: 0)
-                    SettingsDrawer(settings: settings, recorder: recorder, loginItem: loginItem, actions: actions)
-                        .card()
-                        .frame(width: 250)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                // Clear of the corner piece at VSCode's top-right corner.
-                .padding(.trailing, windowRadius + 4)
+                SettingsDrawer(settings: settings, recorder: recorder, loginItem: loginItem, actions: actions)
+                    .card()
+                    .frame(width: 180)
+                    .fixedSize(horizontal: false, vertical: true)
+                    // Clear of the corner piece at VSCode's top-right corner.
+                    .padding(.trailing, windowRadius + 4)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
             Spacer(minLength: 0)
         }
@@ -254,18 +243,18 @@ struct TopBarView: View {
                         }
                         if model.rows.isEmpty {
                             Text("No VSCode windows").font(.system(size: 11)).foregroundStyle(Color.secondary)
-                                .frame(height: barHeight - tabTop)
+                                .frame(height: height - tabTop)
                         }
                         Button(action: actions.newWindow) {
                             Image(systemName: "plus")
                         }
                         .buttonStyle(IconButtonStyle())
-                        .frame(height: barHeight - tabTop)
+                        .frame(height: height - tabTop)
                         .help("Open a new VSCode window. Then pick a folder on its Welcome page.")
                     }
                     // Room for the selected tab's inner corners at the ends.
                     .padding(.horizontal, tabJoinRadius)
-                    .frame(height: barHeight, alignment: .bottom)
+                    .frame(height: height, alignment: .bottom)
                 }
             }
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { listFrame = $0 }
@@ -279,7 +268,7 @@ struct TopBarView: View {
             .padding(.leading, 4)
             .padding(.trailing, 8)
         }
-        .frame(maxWidth: .infinity, minHeight: barHeight, maxHeight: barHeight)
+        .frame(maxWidth: .infinity, minHeight: height, maxHeight: height)
         .background(barColor)
         .clipShape(topBarShape)
         .overlay { BarOutline().stroke(borderColor, lineWidth: 1) }
@@ -314,6 +303,9 @@ struct TopBarView: View {
             // An empty window has no saved place or color, so it stays a
             // normal tab while the settings are open.
             editing: model.settingsOpen && !row.window.empty,
+            showBranch: settings.showBranch,
+            showChanges: settings.showChanges,
+            showStatus: settings.showStatus,
             colorName: Binding(
                 get: { settings.colors[row.key] },
                 set: { settings.colors[row.key] = $0 }
@@ -324,7 +316,7 @@ struct TopBarView: View {
                 if let tip { model.tip = tip } else if model.tip?.rowId == row.id { model.tip = nil }
             }
         )
-        .frame(width: width, height: barHeight - tabTop)
+        .frame(width: width, height: height - tabTop)
         .background {
             if active {
                 GeometryReader { g in
