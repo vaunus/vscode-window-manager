@@ -8,7 +8,7 @@ https://github.com/user-attachments/assets/ce16364b-daf0-4db4-b90f-fe83bfc22365
 
 > **Live Claude Code status.** Each tab shows what Claude Code is doing in that window, as it happens: **working**, **needs you** (a permission prompt or a question), or **done**.
 
-- One tab per VSCode window, in a slim bar along the top of the screen, with its Claude status. Hover a tab for its git branch.
+- One tab per VSCode window, with its Claude status. Choose in the settings: a slim bar across the top of the screen (hover a tab for its git branch), or a side bar on the left that also shows the branch and status text.
 - Click a tab to bring that window to the front.
 - New VSCode windows are gathered as soon as they open.
 - Global shortcut to bring the manager to the front.

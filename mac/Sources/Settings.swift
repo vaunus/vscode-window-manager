@@ -47,14 +47,27 @@ let rowColors: [RowColor] = [
     RowColor(name: "gray", color: .gray), RowColor(name: "white", hex: 0xF2F2F7),
 ]
 
+// Where the bar goes. The raw values are saved, so do not change them.
+enum TabLayout: String {
+    // Down the left side, a row per window with its branch and status.
+    case side
+    // Across the top of the screen, a slim tab per window.
+    case top
+}
+
 func rowColor(_ name: String?) -> Color? {
     rowColors.first { $0.name == name }?.color
 }
 
 @MainActor
 final class Settings: ObservableObject {
+    static let minWidth: Double = 180
+    static let maxWidth: Double = 300
+    static let widthStep: Double = 10
     static let defaultHotKey = HotKeySpec(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(cmdKey | optionKey), label: "⌥⌘V")
 
+    @Published var width: Double { didSet { UserDefaults.standard.set(width, forKey: "barWidth") } }
+    @Published var layout: TabLayout { didSet { UserDefaults.standard.set(layout.rawValue, forKey: "tabLayout") } }
     // UUID of the screen for the bar. nil: the main screen.
     @Published var screen: String? { didSet { UserDefaults.standard.set(screen, forKey: "screen") } }
     // Where the user put the bar and the VSCode windows, in AX coordinates.
@@ -91,6 +104,9 @@ final class Settings: ObservableObject {
 
     init() {
         let d = UserDefaults.standard
+        let w = d.double(forKey: "barWidth")
+        width = w == 0 ? 220 : min(max(w, Self.minWidth), Self.maxWidth)
+        layout = d.string(forKey: "tabLayout").flatMap(TabLayout.init(rawValue:)) ?? .top
         screen = d.string(forKey: "screen")
         group = (d.array(forKey: "group") as? [Double]).flatMap { $0.count == 4 ? CGRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) : nil }
         order = d.stringArray(forKey: "order") ?? []
