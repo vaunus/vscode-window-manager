@@ -35,6 +35,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var panel: BarPanel!
     var corners: NSPanel!
     var cover: NSPanel!
+    // The tip under a tab. See BarModel.tip.
+    var tipPanel: NSPanel!
     var timer: Timer?
     // Keeps the bar hidden while VSCode hides.
     var hideUntil = Date.distantPast
@@ -84,8 +86,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // Sleeping windows that the bar asked VSCode to open, by key.
     var waking: [String: Date] = [:]
 
-    var width: CGFloat { CGFloat(settings.width) }
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         allowBackgroundCursor()
         // Shows the system prompt once if access is missing.
@@ -95,7 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Non-activating: a click on a row does not take focus from VSCode,
         // so one click is enough to switch windows.
-        panel = BarPanel(contentRect: VSCodeWindows.barFrame(width: width), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel = BarPanel(contentRect: VSCodeWindows.barFrame(height: barHeight), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.becomesKeyOnlyIfNeeded = true
         panel.level = .floating
         // Transient: macOS hides the bar when it shows the desktop (a click
@@ -113,7 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Clear strip above VSCode with solid pieces in its rounded corner gaps.
         // Above VSCode, so VSCode's shadow can't tint them. Clicks pass through.
-        corners = NSPanel(contentRect: VSCodeWindows.cornerFrame(width: width), styleMask: [.borderless], backing: .buffered, defer: false)
+        corners = NSPanel(contentRect: VSCodeWindows.cornerFrame(height: barHeight), styleMask: [.borderless], backing: .buffered, defer: false)
         corners.level = .floating
         corners.collectionBehavior = [.canJoinAllSpaces, .transient]
         corners.isOpaque = false
@@ -154,13 +154,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         host.sizingOptions = []
         panel.contentView = host
 
-        // Resize the bar and the VSCode windows when the width changes.
-        settings.$width.dropFirst().removeDuplicates().sink { [weak self] w in
-            self?.layoutPanels(width: CGFloat(w))
-            VSCodeWindows.arrangeAll(width: CGFloat(w))
-            self?.updateVisibility()
-        }
-        .store(in: &cancellables)
+        // Above the bar and the corner strip. Clicks pass through.
+        tipPanel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        tipPanel.level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 1)
+        tipPanel.collectionBehavior = [.canJoinAllSpaces, .transient]
+        tipPanel.isOpaque = false
+        tipPanel.backgroundColor = .clear
+        tipPanel.hasShadow = true
+        tipPanel.ignoresMouseEvents = true
+        tipPanel.hidesOnDeactivate = false
+        tipPanel.appearance = NSAppearance(named: .darkAqua)
+        model.$tip.removeDuplicates().sink { [weak self] tip in self?.showTip(tip) }
+            .store(in: &cancellables)
 
         setUpShortcut()
         setUpWatcher()
@@ -218,11 +223,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func arrangeNew(_ ax: AXUIElement) {
         guard VSCodeWindows.isStandard(ax) else { return }
         createdAt[AXKey(ax)] = Date()
-        VSCodeWindows.place(ax, width: width, restore: false)
+        VSCodeWindows.place(ax, height: barHeight, restore: false)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                VSCodeWindows.place(ax, width: self.width, restore: false)
+                VSCodeWindows.place(ax, height: barHeight, restore: false)
                 self.updateVisibility()
             }
         }
@@ -274,7 +279,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func mouseDown(at p: CGPoint) {
         mouseDownAt = p
         armedMoves = 0
-        guard !dragging, let from = VSCodeWindows.targetFrame(width: width), from.contains(p), p.y - from.minY < 50
+        guard !dragging, let from = VSCodeWindows.targetFrame(height: barHeight), from.contains(p), p.y - from.minY < 50
         else { return }
         armedMoves = 10
     }
@@ -287,7 +292,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             dragMoved()
             return
         }
-        guard armedMoves > 0, !dragging, let app = VSCodeWindows.app(), let from = VSCodeWindows.targetFrame(width: width)
+        guard armedMoves > 0, !dragging, let app = VSCodeWindows.app(), let from = VSCodeWindows.targetFrame(height: barHeight)
         else { return }
         armedMoves -= 1
         // Only a move: a resize does not start here.
@@ -312,7 +317,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dragging = true
         // Ends the drag after the mouse is up, also if macOS tells nothing.
         scheduleSnapBack()
-        guard panel.isVisible, let from = VSCodeWindows.targetFrame(width: width) else {
+        guard panel.isVisible, let from = VSCodeWindows.targetFrame(height: barHeight) else {
             updateVisibility()
             return
         }
@@ -399,11 +404,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let r = drag.cover {
             cover.setFrame(VSCodeWindows.flip(dragCover(r, drag.velocity).offsetBy(dx: f.minX, dy: f.minY)), display: true)
         }
-        let g = CGRect(x: f.minX - width, y: f.minY, width: f.width + width, height: f.height)
-        let bar = VSCodeWindows.barFrame(width: width, group: g)
+        let g = CGRect(x: f.minX, y: f.minY - barHeight, width: f.width, height: f.height + barHeight)
+        let bar = VSCodeWindows.barFrame(height: barHeight, group: g)
+        let p = panelFrame(bar)
         // Redraw only when the size changes. A move needs no redraw.
-        panel.setFrame(bar, display: bar.size != panel.frame.size)
-        corners.setFrame(VSCodeWindows.cornerFrame(width: width, group: g), display: false)
+        panel.setFrame(p, display: p.size != panel.frame.size)
+        corners.setFrame(VSCodeWindows.cornerFrame(bar: bar), display: false)
     }
 
     // The cover in a drag, on the window (AX coordinates, from its top-left
@@ -431,7 +437,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dragLink = nil
         if liveDrag != nil {
             liveDrag = nil
-            if restore { layoutPanels(width: width) }
+            if restore { layoutPanels() }
         }
     }
 
@@ -493,11 +499,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         stopDrag(restore: true)
         for ax in windows {
             guard VSCodeWindows.isStandard(ax), !VSCodeWindows.isMinimized(ax), !VSCodeWindows.isFullScreen(ax),
-                  !VSCodeWindows.isArranged(ax, width: width), let before = VSCodeWindows.frame(ax),
+                  !VSCodeWindows.isArranged(ax, height: barHeight), let before = VSCodeWindows.frame(ax),
                   !stuck.contains(where: { CFEqual($0.window, ax) && $0.frame == before }) else { continue }
-            VSCodeWindows.place(ax, width: width, restore: false)
+            VSCodeWindows.place(ax, height: barHeight, restore: false)
             stuck.removeAll { CFEqual($0.window, ax) }
-            if !VSCodeWindows.isArranged(ax, width: width), let after = VSCodeWindows.frame(ax) {
+            if !VSCodeWindows.isArranged(ax, height: barHeight), let after = VSCodeWindows.frame(ax) {
                 stuck.append((ax, after))
             }
         }
@@ -507,15 +513,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // A window the group can follow: a normal window, not next to the bar now.
     func canFollow(_ ax: AXUIElement) -> Bool {
         VSCodeWindows.isStandard(ax) && !VSCodeWindows.isMinimized(ax) && !VSCodeWindows.isFullScreen(ax)
-            && VSCodeWindows.frame(ax) != nil && !VSCodeWindows.isArranged(ax, width: width)
+            && VSCodeWindows.frame(ax) != nil && !VSCodeWindows.isArranged(ax, height: barHeight)
     }
 
     // The user moved or resized a VSCode window, or macOS tiled it. The bar
-    // goes on the window's left, and the other windows go on top of it. A
-    // tile is the place for the whole group, so the window gets narrower to
+    // goes on the window's top, and the other windows go on top of it. A
+    // tile is the place for the whole group, so the window gets shorter to
     // make room for the bar.
     func follow(_ ax: AXUIElement) {
-        guard let w = VSCodeWindows.frame(ax), let old = VSCodeWindows.targetFrame(width: width),
+        guard let w = VSCodeWindows.frame(ax), let old = VSCodeWindows.targetFrame(height: barHeight),
               // The screen with the window's title bar. In a drag, the mouse is there.
               let screen = VSCodeWindows.screen(at: CGPoint(x: w.midX, y: w.minY + 10)) ?? VSCodeWindows.screen(for: w)
         else {
@@ -530,12 +536,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if byKeyboard && repeatRectangle(ax, w) { return }
         let resized = abs(w.width - old.width) >= 2 || abs(w.height - old.height) >= 2
         let distance = hypot(w.minX - old.minX, w.minY - old.minY)
-        var g = CGRect(x: w.minX - width, y: w.minY, width: w.width + width, height: w.height)
+        var g = CGRect(x: w.minX, y: w.minY - barHeight, width: w.width, height: w.height + barHeight)
         if resized && VSCodeWindows.isTile(w, on: v, parts: byKeyboard ? VSCodeWindows.thirds : VSCodeWindows.halves) {
             g = w
-        } else if resized && g.minX < v.minX {
-            // Its left edge went too far left for the bar. Its right edge stays.
-            g = CGRect(x: v.minX, y: w.minY, width: w.maxX - v.minX, height: w.height)
+        } else if resized && g.minY < v.minY {
+            // Its top edge went too high for the bar. Its bottom edge stays.
+            g = CGRect(x: w.minX, y: v.minY, width: w.width, height: w.maxY - v.minY)
         } else if !resized, distance >= 40, let before = VSCodeWindows.groupFrame, VSCodeWindows.isFill(before) {
             // A drag of a group that fills its screen makes it smaller, like
             // a tiled macOS window. A short drag puts it back.
@@ -546,7 +552,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // Rectangle remembers the frame it gave a window. A repeated command
     // (Right Half again, to go to the next screen) works only while the
-    // window still has that frame. The bar makes the window narrower, so
+    // window still has that frame. The bar makes the window shorter, so
     // Rectangle forgets, and the repeat puts the window on the same half
     // again: the whole group's frame. Then ask Rectangle for the command
     // once more. Now the frame is the one it remembers, so it does what a
@@ -567,7 +573,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // If Rectangle does nothing, the window goes back next to the bar.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
             MainActor.assumeIsolated {
-                guard let self, let f = VSCodeWindows.frame(ax), abs(f.minX - g.minX) < 2, abs(f.width - g.width) < 2 else { return }
+                guard let self, let f = VSCodeWindows.frame(ax), abs(f.minY - g.minY) < 2, abs(f.height - g.height) < 2 else { return }
                 self.applyGroup(animating: ax)
             }
         }
@@ -592,22 +598,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // the bar slide there. The others go at once: they are behind it.
     func applyGroup(animating ax: AXUIElement? = nil) {
         finishAnimation()
-        let oldBar = panel.frame
+        let oldBar = barStrip
         VSCodeWindows.group = settings.group.flatMap { VSCodeWindows.fit($0) }
-        let newBar = VSCodeWindows.barFrame(width: width)
+        let newBar = VSCodeWindows.barFrame(height: barHeight)
         guard let ax, let app = VSCodeWindows.app(), let from = VSCodeWindows.frame(ax),
-              let to = VSCodeWindows.targetFrame(width: width),
+              let to = VSCodeWindows.targetFrame(height: barHeight),
               !VSCodeWindows.isMinimized(ax), !VSCodeWindows.isFullScreen(ax),
               differs(from, to) || (panel.isVisible && differs(oldBar, newBar)),
               let screen = VSCodeWindows.screen(for: to) ?? NSScreen.screens.first
         else {
-            layoutPanels(width: width)
-            VSCodeWindows.arrangeAll(width: width)
+            layoutPanels()
+            VSCodeWindows.arrangeAll(height: barHeight)
             updateVisibility()
             return
         }
         for w in VSCodeWindows.windows(app) where !CFEqual(w, ax) {
-            VSCodeWindows.place(w, width: width, restore: false)
+            VSCodeWindows.place(w, height: barHeight, restore: false)
         }
         animation = GroupAnimation(
             window: ax, fromWindow: from, toWindow: to,
@@ -627,7 +633,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // A slide of one window and the bar, for example after Rectangle fills
-    // the screen with the window: the window gets narrower on the left, and
+    // the screen with the window: the window gets shorter at the top, and
     // the bar goes into the space.
     struct GroupAnimation {
         static let duration: TimeInterval = 0.2
@@ -654,8 +660,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let r = a.cover { cover.setFrame(VSCodeWindows.flip(r.offsetBy(dx: w.minX, dy: w.minY)), display: true) }
         VSCodeWindows.setFrame(a.window, w)
         let bar = mix(a.fromBar, a.toBar)
-        panel.setFrame(bar, display: true)
-        corners.setFrame(NSRect(x: bar.maxX, y: bar.minY, width: windowRadius, height: bar.height), display: true)
+        panel.setFrame(panelFrame(bar), display: true)
+        corners.setFrame(VSCodeWindows.cornerFrame(bar: bar), display: true)
         if t >= 1 { finishAnimation() }
     }
 
@@ -665,8 +671,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         animationLink?.invalidate()
         animationLink = nil
         animation = nil
-        VSCodeWindows.place(a.window, width: width, restore: false)
-        layoutPanels(width: width)
+        VSCodeWindows.place(a.window, height: barHeight, restore: false)
+        layoutPanels()
         updateVisibility()
     }
 
@@ -700,6 +706,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.orderFrontRegardless()
     }
 
+    // The tip goes just under its tab, on the screen with the bar.
+    func showTip(_ tip: BarModel.Tip?) {
+        guard let tip, panel.isVisible else {
+            tipPanel.orderOut(nil)
+            return
+        }
+        let host = NSHostingView(rootView: TipView(text: tip.text))
+        let size = host.fittingSize
+        var x = panel.frame.minX + tip.frame.minX
+        if let s = panel.screen { x = min(x, s.visibleFrame.maxX - size.width - 4) }
+        let top = panel.frame.maxY - tip.frame.maxY - 6
+        tipPanel.contentView = host
+        tipPanel.setFrame(NSRect(x: x, y: top - size.height, width: size.width, height: size.height), display: true)
+        tipPanel.orderFrontRegardless()
+    }
+
     func pick(_ row: Row) {
         if row.asleep {
             wake(row)
@@ -712,7 +734,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         coverFocused = true
         recolorCover()
         if let ax = window(for: row) {
-            VSCodeWindows.focus(ax, width: width)
+            VSCodeWindows.focus(ax, height: barHeight)
         } else if let app = VSCodeWindows.app(), !row.window.empty {
             VSCodeWindows.openWithCLI(app, row.window)
         }
@@ -852,7 +874,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func arrangeAll() {
-        VSCodeWindows.arrangeAll(width: width)
+        VSCodeWindows.arrangeAll(height: barHeight)
     }
 
     // Hide VSCode. The bar hides with it.
@@ -869,7 +891,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // Settings need focus (color picker, drag and drop, shortcut keys).
-    // On close, focus goes back to VSCode.
+    // On close, focus goes back to VSCode. The panel grows down to hold
+    // the settings under the bar.
     func toggleSettings() {
         let opening = !model.settingsOpen
         if opening {
@@ -880,7 +903,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             recorder.stop()
             VSCodeWindows.activateApp()
         }
-        withAnimation(.easeInOut(duration: 0.2)) { model.settingsOpen = opening }
+        model.settingsOpen = opening
+        layoutPanels()
     }
 
     func tick() {
@@ -950,7 +974,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         var map: [AXKey: String] = [:]
-        for ax in VSCodeWindows.windows(app) where VSCodeWindows.isArranged(ax, width: width) {
+        for ax in VSCodeWindows.windows(app) where VSCodeWindows.isArranged(ax, height: barHeight) {
             if let id = row(for: ax)?.id { map[AXKey(ax)] = id }
         }
         arrangedRows = map
@@ -1083,8 +1107,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var frame: NSRect?
         var color = barNSColor
         if stacking != .off, model.trusted, let app = VSCodeWindows.app(),
-           let ax = VSCodeWindows.frontArranged(app, width: width), let buttons = VSCodeWindows.buttonsFrame(ax) {
-            frame = VSCodeWindows.coverFrame(width: width, buttons: buttons)
+           let ax = VSCodeWindows.frontArranged(app, height: barHeight), let buttons = VSCodeWindows.buttonsFrame(ax) {
+            frame = VSCodeWindows.coverFrame(height: barHeight, buttons: buttons)
             let match = row(for: ax)
             let window = match?.window
             let focused = VSCodeWindows.isFocused(ax, app)
@@ -1104,10 +1128,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // The bar at the set width, and the corner strip just right of it.
-    func layoutPanels(width w: CGFloat) {
-        panel.setFrame(VSCodeWindows.barFrame(width: w), display: true)
-        corners.setFrame(VSCodeWindows.cornerFrame(width: w), display: true)
+    // The bar across the top of the group, and the corner strip just under it.
+    func layoutPanels() {
+        let bar = VSCodeWindows.barFrame(height: barHeight)
+        panel.setFrame(panelFrame(bar), display: true)
+        corners.setFrame(VSCodeWindows.cornerFrame(bar: bar), display: true)
+    }
+
+    // The panel for a bar frame: the bar, and room under it for the
+    // settings while they are open. The empty part is clear, and clicks on
+    // it go through to VSCode.
+    func panelFrame(_ bar: NSRect) -> NSRect {
+        guard model.settingsOpen else { return bar }
+        return NSRect(x: bar.minX, y: bar.minY - settingsHeight, width: bar.width, height: bar.height + settingsHeight)
+    }
+
+    // The bar's part of the panel, without the settings.
+    var barStrip: NSRect {
+        let f = panel.frame
+        return NSRect(x: f.minX, y: f.maxY - barHeight, width: f.width, height: barHeight)
     }
 
     // VSCode came to the front or went behind: the window under the cover

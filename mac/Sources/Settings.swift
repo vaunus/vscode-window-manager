@@ -53,12 +53,8 @@ func rowColor(_ name: String?) -> Color? {
 
 @MainActor
 final class Settings: ObservableObject {
-    static let minWidth: Double = 180
-    static let maxWidth: Double = 300
-    static let widthStep: Double = 10
     static let defaultHotKey = HotKeySpec(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(cmdKey | optionKey), label: "⌥⌘V")
 
-    @Published var width: Double { didSet { UserDefaults.standard.set(width, forKey: "barWidth") } }
     // UUID of the screen for the bar. nil: the main screen.
     @Published var screen: String? { didSet { UserDefaults.standard.set(screen, forKey: "screen") } }
     // Where the user put the bar and the VSCode windows, in AX coordinates.
@@ -95,8 +91,6 @@ final class Settings: ObservableObject {
 
     init() {
         let d = UserDefaults.standard
-        let w = d.double(forKey: "barWidth")
-        width = w == 0 ? 220 : min(max(w, Self.minWidth), Self.maxWidth)
         screen = d.string(forKey: "screen")
         group = (d.array(forKey: "group") as? [Double]).flatMap { $0.count == 4 ? CGRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) : nil }
         order = d.stringArray(forKey: "order") ?? []

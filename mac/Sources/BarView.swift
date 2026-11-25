@@ -18,18 +18,42 @@ let borderColor = Color(nsColor: hexColor(0x464646))
 let claudeOrange = Color(nsColor: hexColor(0xD97757))
 // VSCode's badge blue, as on the Source Control icon.
 let badgeBlue = Color(nsColor: hexColor(0x0078D4))
-// Space between the rows and the sides of the bar.
-let rowInset: CGFloat = 6
-// Space between two rows.
+// Height of the bar across the top of the VSCode windows. Small, so the
+// windows keep most of the screen.
+let barHeight: CGFloat = 30
+// Room under the bar for the settings while they are open.
+let settingsHeight: CGFloat = 340
+// Space between the top of the bar and the tabs.
+let tabTop: CGFloat = 4
+// Each tab gets an equal share of the bar, within these widths. Past the
+// minimum, the tabs scroll.
+let minTabWidth: CGFloat = 110
+let maxTabWidth: CGFloat = 220
+// Space between two tabs.
 let rowSpacing: CGFloat = 2
-// Space left of a row's status dot. It has room for the color line.
+// Space left of a tab's status dot. It has room for the color line.
 let rowLeading: CGFloat = 9
-// Radius of the inner corners where the selected row joins the VSCode
-// window. Not more than rowInset, so they stay clear of the other rows.
+// Radius of the inner corners where the selected tab joins the VSCode
+// window. The tabs have this much room at the ends of the list.
 let tabJoinRadius: CGFloat = 6
 
-// The bar's shape: rounded on the left, square where it meets VSCode.
-let barShape = UnevenRoundedRectangle(topLeadingRadius: windowRadius, bottomLeadingRadius: windowRadius, style: .circular)
+// The bar's shape: rounded on top, square where it meets VSCode.
+let barShape = UnevenRoundedRectangle(topLeadingRadius: windowRadius, topTrailingRadius: windowRadius, style: .circular)
+
+// The bar's border: left, top and right. The bottom is open, where the bar
+// joins VSCode. The lines are 1 pt wide, inside the rect.
+struct BarOutline: Shape {
+    func path(in rect: CGRect) -> Path {
+        let r = windowRadius - 0.5
+        let l = rect.minX + 0.5, t = rect.minY + 0.5, rr = rect.maxX - 0.5, b = rect.maxY
+        var p = Path()
+        p.move(to: CGPoint(x: l, y: b))
+        p.addArc(tangent1End: CGPoint(x: l, y: t), tangent2End: CGPoint(x: rr, y: t), radius: r)
+        p.addArc(tangent1End: CGPoint(x: rr, y: t), tangent2End: CGPoint(x: rr, y: b), radius: r)
+        p.addLine(to: CGPoint(x: rr, y: b))
+        return p
+    }
+}
 
 // The selected row's color: the title bar color of its window, focused or
 // not, the same as the box over the window buttons. VSCode uses this color
@@ -54,32 +78,42 @@ final class BarModel: ObservableObject {
     @Published var focused = false
     @Published var trusted = AXIsProcessTrusted()
     @Published var settingsOpen = false
+    // The tip under the tab the mouse rests on. The app shows it in its own
+    // panel: .help() tooltips do not show in the bar's panel.
+    @Published var tip: Tip?
     let join = TabJoin()
+
+    struct Tip: Equatable {
+        let rowId: String
+        let text: String
+        // The tab, in the bar window (top-left origin).
+        let frame: CGRect
+    }
 }
 
 // The part of the selected row that goes over the VSCode window's border.
 // Its own object, so the bar does not redraw when only this changes.
 @MainActor
 final class TabJoin: ObservableObject {
-    // In the bar window (top-left origin): the row's top and bottom, and the
-    // top and bottom of the list, where the row shows. Then the color.
+    // In the bar window (top-left origin): the tab's left and right, and the
+    // left and right of the list, where the tab shows. Then the color.
     struct Span: Equatable {
-        let top: CGFloat
-        let bottom: CGFloat
-        let listTop: CGFloat
-        let listBottom: CGFloat
+        let left: CGFloat
+        let right: CGFloat
+        let listLeft: CGFloat
+        let listRight: CGFloat
         let color: Int
     }
 
     @Published var span: Span?
 }
 
-// The selected row's outline: the left side of a rounded rectangle, joined
-// to the VSCode window's border by a rounded inner corner at the top and
-// the bottom. The window starts at the right edge of the rect. The inner
-// corners go outside the rect: above it, below it, and 1 pt to the right,
+// The selected tab's outline: the top of a rounded rectangle, joined to
+// the VSCode window's border by a rounded inner corner on the left and the
+// right. The window starts at the bottom edge of the rect. The inner
+// corners go outside the rect: left of it, right of it, and 1 pt down,
 // over the window's border. The lines are 1 pt wide, on whole points.
-// fill: the area inside the outline, out to the right side of the border.
+// fill: the area inside the outline, down to the bottom of the border.
 struct TabShape: Shape {
     var fill = false
 
@@ -87,17 +121,17 @@ struct TabShape: Shape {
         let r = tabJoinRadius
         // The outer corner radius at the center of the line.
         let c: CGFloat = 5.5
-        // Line centers: the window's border, and the row's left, top and bottom.
-        let e = rect.maxX + 0.5, l = rect.minX + 0.5, t = rect.minY + 0.5, b = rect.maxY - 0.5
+        // Line centers: the window's border, and the tab's left, right and top.
+        let e = rect.maxY + 0.5, l = rect.minX + 0.5, rr = rect.maxX - 0.5, t = rect.minY + 0.5
         var p = Path()
-        p.move(to: CGPoint(x: e, y: t - r))
-        p.addArc(tangent1End: CGPoint(x: e, y: t), tangent2End: CGPoint(x: l, y: t), radius: r)
-        p.addArc(tangent1End: CGPoint(x: l, y: t), tangent2End: CGPoint(x: l, y: b), radius: c)
-        p.addArc(tangent1End: CGPoint(x: l, y: b), tangent2End: CGPoint(x: e, y: b), radius: c)
-        p.addArc(tangent1End: CGPoint(x: e, y: b), tangent2End: CGPoint(x: e, y: b + r), radius: r)
+        p.move(to: CGPoint(x: l - r, y: e))
+        p.addArc(tangent1End: CGPoint(x: l, y: e), tangent2End: CGPoint(x: l, y: t), radius: r)
+        p.addArc(tangent1End: CGPoint(x: l, y: t), tangent2End: CGPoint(x: rr, y: t), radius: c)
+        p.addArc(tangent1End: CGPoint(x: rr, y: t), tangent2End: CGPoint(x: rr, y: e), radius: c)
+        p.addArc(tangent1End: CGPoint(x: rr, y: e), tangent2End: CGPoint(x: rr + r, y: e), radius: r)
         if fill {
-            p.addLine(to: CGPoint(x: e + 0.5, y: b + r))
-            p.addLine(to: CGPoint(x: e + 0.5, y: t - r))
+            p.addLine(to: CGPoint(x: rr + r, y: e + 0.5))
+            p.addLine(to: CGPoint(x: l - r, y: e + 0.5))
             p.closeSubpath()
         }
         return p
@@ -252,6 +286,8 @@ struct ColorGrid: View {
     }
 }
 
+// One VSCode window as a tab: status, name and change count on one line.
+// The branch and the Claude status are in the tooltip.
 struct RowView: View {
     let row: Row
     // The tab color (0xRRGGBB) of the selected row. Nil for other rows.
@@ -260,12 +296,16 @@ struct RowView: View {
     let editing: Bool
     @Binding var colorName: String?
     let onPick: () -> Void
+    // Shows or hides this tab's tip.
+    let showTip: (BarModel.Tip?) -> Void
     @State private var picking = false
+    @State private var hovering = false
+    @State private var frame = CGRect.zero
     // The mouse is on the color button.
     @State private var paletteHovering = false
 
     var body: some View {
-        HStack(alignment: .center, spacing: 7) {
+        HStack(alignment: .center, spacing: 6) {
             Group {
                 if editing {
                     Image(systemName: "line.3.horizontal")
@@ -280,79 +320,67 @@ struct RowView: View {
             }
             .frame(width: 12, height: 15)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(row.name)
-                    .font(.system(size: 12))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                // Branch and status lines are always there, so all rows have the same height.
-                HStack(spacing: 3) {
-                    if row.window.empty {
-                        Image(systemName: "folder").font(.system(size: 8))
-                        Text("no folder")
-                    } else {
-                        Image(systemName: "arrow.triangle.branch").font(.system(size: 8))
-                        Text(row.branch ?? "no repo").lineLimit(1).truncationMode(.middle)
-                        if row.window.changes > 0 {
-                            ChangesBadge(count: row.window.changes).padding(.leading, 1)
-                        }
-                    }
-                }
-                .font(.system(size: 10))
-                .foregroundStyle(Color.secondary)
-                .opacity(row.branch == nil ? 0.5 : 1)
-                statusText
-                    .font(.system(size: 10))
-                    .foregroundStyle(row.state == .needsInput ? claudeOrange : Color.secondary)
-                    .opacity(row.text.isEmpty ? 0.5 : 1)
-                    .lineLimit(1)
-                    // Settings open: the color button in the row's bottom-left
-                    // corner, in line with this line, under the drag handle.
-                    .overlay(alignment: .leading) {
-                        if editing { paletteButton }
-                    }
-            }
+            Text(row.name)
+                .font(.system(size: 12))
+                .foregroundStyle(row.state == .needsInput ? claudeOrange : Color.primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
             Spacer(minLength: 0)
+            if editing {
+                paletteButton
+            } else if row.window.changes > 0 {
+                ChangesBadge(count: row.window.changes)
+            }
         }
-        .padding(.vertical, 5)
-        // Room for the color line on all rows, so the text of all rows lines up.
         .padding(.leading, rowLeading)
         .padding(.trailing, 6)
-        // A sleeping window's row is dim. Its color line is dim too: see background.
+        .frame(maxHeight: .infinity)
+        // A sleeping window's tab is dim. Its color line is dim too: see background.
         .opacity(row.asleep ? 0.5 : 1)
         // Dark text on a light tab.
         .environment(\.colorScheme, tab.map(isLight) == true ? .light : .dark)
         .background { background }
-        // Out to the bar's edge, so a click there goes to the row.
-        .contentShape(RowHitShape())
+        .contentShape(Rectangle())
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame = $0 }
+        .onHover { h in
+            hovering = h
+            guard h else {
+                showTip(nil)
+                return
+            }
+            // A short wait, like a tooltip, so a mouse that only passes over does not open it.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                if hovering, !picking { showTip(BarModel.Tip(rowId: row.id, text: tipText, frame: frame)) }
+            }
+        }
         // The drag hand while the settings are open, but not on the color
-        // button. The row's cursor wins over the button's own cursor.
+        // button. The tab's cursor wins over the button's own cursor.
         .cursor(editing && !paletteHovering ? .openHand : .pointingHand)
         // Settings open: a click picks a color. Closed: a click goes to the window.
         .onTapGesture {
+            showTip(nil)
             if editing { picking = true } else { onPick() }
         }
-        .popover(isPresented: $picking, arrowEdge: .trailing) {
+        .popover(isPresented: $picking, arrowEdge: .bottom) {
             ColorGrid(selected: $colorName, close: { picking = false })
         }
-        .help(editing
-            ? "Drag to reorder. Click to set a color."
-            : ([row.name] + row.window.rawFolders + [row.branch ?? "", row.text, row.asleep ? "Click to wake." : ""])
-                .filter { !$0.isEmpty }.joined(separator: "\n"))
     }
 
-    // For example "done · 5m". A running command shows a terminal icon in
-    // place of a time, because it does not end by itself.
-    private var statusText: Text {
-        if row.text.isEmpty { return Text(verbatim: "no session") }
-        if row.activity == .terminal {
-            return Text("\(row.text) · \(Image(systemName: "terminal"))")
-        }
-        return Text(verbatim: row.text)
+    private var tipText: String {
+        if editing { return "Drag to reorder. Click to set a color." }
+        let branch = row.window.empty ? "no folder" : row.branch.map { "Branch: \($0)" } ?? "no repo"
+        let changes = row.window.changes > 0 ? "\(row.window.changes) uncommitted changes" : ""
+        return ([row.name] + row.window.rawFolders + [branch, changes, statusHelp, row.asleep ? "Click to wake." : ""])
+            .filter { !$0.isEmpty }.joined(separator: "\n")
     }
 
-    // Its center is on the center of the drag handle's column: 12 pt wide,
-    // then 7 pt to the text. The button is 16 pt wide.
+    // For example "done · 5m". A running command says so, because it does
+    // not end by itself.
+    private var statusHelp: String {
+        if row.text.isEmpty { return "no session" }
+        return row.activity == .terminal ? "\(row.text) · terminal" : row.text
+    }
+
     private var paletteButton: some View {
         Button { picking = true } label: {
             Image(systemName: "paintpalette").font(.system(size: 10))
@@ -360,11 +388,10 @@ struct RowView: View {
         .buttonStyle(RowIconButtonStyle())
         .onHover { paletteHovering = $0 }
         .help("Set a color")
-        .offset(x: -(7 + 12 / 2) - 16 / 2)
     }
 
-    // The selected row is a tab of its VSCode window, like an index tab: out
-    // to the edge of the bar, where it joins the window with rounded inner
+    // The selected tab is part of its VSCode window, like an index tab: down
+    // to the bottom of the bar, where it joins the window with rounded inner
     // corners. A line in the window border color goes around it, so the tab
     // shows when the window is the same color as the bar. The parts over the
     // window's border are outside the bar. The corner strip draws them.
@@ -374,26 +401,20 @@ struct RowView: View {
                 TabShape(fill: true).fill(Color(nsColor: hexColor(tab)))
                 TabShape().stroke(borderColor, lineWidth: 1)
             } else {
-                Color.clear
+                // The tab under the mouse is a little lighter.
+                UnevenRoundedRectangle(topLeadingRadius: 6, topTrailingRadius: 6, style: .circular)
+                    .fill(Color.white.opacity(hovering ? 0.06 : 0))
             }
             // A row's color is only this line.
             if let color {
                 RoundedRectangle(cornerRadius: 1.5)
                     .fill(color)
                     .frame(width: 3)
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 5)
                     .padding(.leading, 2)
                     .opacity(row.asleep ? 0.5 : 1)
             }
         }
-        .padding(.trailing, tab == nil ? 0 : -rowInset)
-    }
-}
-
-// A row's rect, out to the bar's edge on the right.
-struct RowHitShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        Path(CGRect(x: rect.minX, y: rect.minY, width: rect.width + rowInset, height: rect.height))
     }
 }
 
@@ -433,16 +454,6 @@ struct SettingsDrawer: View {
                 }
                 .buttonStyle(IconButtonStyle())
                 .help("Close settings")
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Width").font(.system(size: 11))
-                StepperRow(value: "\(Int(settings.width)) px",
-                           canDecrease: settings.width > Settings.minWidth,
-                           canIncrease: settings.width < Settings.maxWidth,
-                           decrease: { changeWidth(by: -Settings.widthStep) },
-                           increase: { changeWidth(by: Settings.widthStep) },
-                           decreaseHelp: "Narrower", increaseHelp: "Wider")
             }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -504,12 +515,8 @@ struct SettingsDrawer: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(barColor)
-        .overlay(alignment: .top) { Divider() }
-    }
-
-    private func changeWidth(by delta: Double) {
-        settings.width = min(max(settings.width + delta, Settings.minWidth), Settings.maxWidth)
+        .background(RoundedRectangle(cornerRadius: 10).fill(barColor))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(borderColor, lineWidth: 1))
     }
 
     // A setting's title, and an info icon that shows the explanation on hover.
@@ -554,7 +561,7 @@ struct InfoIcon: View {
                     if hovering { showing = true }
                 }
             }
-            .popover(isPresented: $showing, arrowEdge: .trailing) {
+            .popover(isPresented: $showing, arrowEdge: .leading) {
                 Text(text)
                     .font(.system(size: 11))
                     .frame(width: 200, alignment: .leading)
@@ -576,38 +583,6 @@ func durationLabel(minutes m: Int) -> String {
     return "\(m)m"
 }
 
-// A value between − and + buttons.
-struct StepperRow: View {
-    let value: String
-    let canDecrease: Bool
-    let canIncrease: Bool
-    let decrease: () -> Void
-    let increase: () -> Void
-    let decreaseHelp: String
-    let increaseHelp: String
-
-    var body: some View {
-        HStack(spacing: 0) {
-            Button(action: decrease) {
-                Image(systemName: "minus")
-            }
-            .buttonStyle(IconButtonStyle())
-            .disabled(!canDecrease)
-            .help(decreaseHelp)
-            Spacer()
-            Text(value)
-                .font(.system(size: 11).monospacedDigit())
-            Spacer()
-            Button(action: increase) {
-                Image(systemName: "plus")
-            }
-            .buttonStyle(IconButtonStyle())
-            .disabled(!canIncrease)
-            .help(increaseHelp)
-        }
-    }
-}
-
 struct BarView: View {
     @ObservedObject var model: BarModel
     @ObservedObject var settings: Settings
@@ -619,95 +594,123 @@ struct BarView: View {
     @State private var listFrame = CGRect.zero
 
     var body: some View {
+        // The bar on top. While the settings are open, the panel is taller
+        // and they show under the bar, on the right, below the gear button.
         VStack(spacing: 0) {
-            // Same place and size as the buttons on a macOS window.
-            WindowButtons(close: actions.close, minimize: actions.hideAll)
-                .padding(.leading, 11)
-                .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34, alignment: .leading)
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: rowSpacing) {
-                    if !model.trusted {
-                        Button("Allow Accessibility") {
-                            let url = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-                            if let u = URL(string: url) { NSWorkspace.shared.open(u) }
-                        }
-                        .font(.system(size: 11))
-                        .padding(.bottom, 6)
-                    }
-                    ForEach(model.rows) { row in
-                        rowView(row)
-                    }
-                    if model.rows.isEmpty {
-                        Text("No VSCode windows").font(.system(size: 11)).foregroundStyle(Color.secondary)
-                    }
-                    // The space above the button is the same as the space on
-                    // its left, between the bar's edge and the button.
-                    AddWindowButton(action: actions.newWindow)
-                        .padding(.top, rowInset - rowSpacing)
+            bar
+            if model.settingsOpen {
+                HStack {
+                    Spacer(minLength: 0)
+                    SettingsDrawer(settings: settings, recorder: recorder, loginItem: loginItem, actions: actions)
+                        .frame(width: 250)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                // Room for the selected row's inner corners at the ends.
-                .padding(.vertical, tabJoinRadius)
-                .padding(.horizontal, rowInset)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                // Clear of the corner piece at VSCode's top-right corner.
+                .padding(.trailing, windowRadius + 4)
+            }
+            Spacer(minLength: 0)
+        }
+        .cursorRoot()
+        .onChange(of: joinSpan, initial: true) { _, span in model.join.span = span }
+    }
+
+    private var bar: some View {
+        HStack(spacing: 0) {
+            // Same look as the buttons on a macOS window.
+            WindowButtons(close: actions.close, minimize: actions.hideAll)
+                .padding(.leading, 12)
+                .padding(.trailing, 8)
+
+            if !model.trusted {
+                Button("Allow Accessibility") {
+                    let url = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+                    if let u = URL(string: url) { NSWorkspace.shared.open(u) }
+                }
+                .font(.system(size: 11))
+                .controlSize(.small)
+                .padding(.trailing, 8)
+            }
+
+            GeometryReader { g in
+                let w = tabWidth(available: g.size.width)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .bottom, spacing: rowSpacing) {
+                        ForEach(model.rows) { row in
+                            rowView(row, width: w)
+                        }
+                        if model.rows.isEmpty {
+                            Text("No VSCode windows").font(.system(size: 11)).foregroundStyle(Color.secondary)
+                                .frame(height: barHeight - tabTop)
+                        }
+                        Button(action: actions.newWindow) {
+                            Image(systemName: "plus")
+                        }
+                        .buttonStyle(IconButtonStyle())
+                        .frame(height: barHeight - tabTop)
+                        .help("Open a new VSCode window. Then pick a folder on its Welcome page.")
+                    }
+                    // Room for the selected tab's inner corners at the ends.
+                    .padding(.horizontal, tabJoinRadius)
+                    .frame(height: barHeight, alignment: .bottom)
+                }
             }
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { listFrame = $0 }
             .onPreferenceChange(TabFrameKey.self) { tabFrame = $0 }
 
-            if model.settingsOpen {
-                SettingsDrawer(settings: settings, recorder: recorder, loginItem: loginItem, actions: actions)
-                    .transition(.move(edge: .bottom))
-            } else {
-                HStack {
-                    Button(action: actions.toggleSettings) {
-                        Image(systemName: "gearshape")
-                    }
-                    .buttonStyle(IconButtonStyle())
-                    .help("Settings")
-                    Spacer()
-                }
-                .padding(8)
+            Button(action: actions.toggleSettings) {
+                Image(systemName: model.settingsOpen ? "xmark" : "gearshape")
             }
+            .buttonStyle(IconButtonStyle())
+            .help(model.settingsOpen ? "Close settings" : "Settings")
+            .padding(.leading, 4)
+            .padding(.trailing, 8)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, minHeight: barHeight, maxHeight: barHeight)
         .background(barColor)
         .clipShape(barShape)
-        // Border on the left, top and bottom. The right edge of the stroke
-        // falls outside the bar, where it joins VSCode.
-        .overlay {
-            barShape.strokeBorder(borderColor, lineWidth: 1).padding(.trailing, -1)
-        }
+        .overlay { BarOutline().stroke(borderColor, lineWidth: 1) }
         .contentShape(Rectangle())
-        .cursorRoot()
         .contextMenu { BarMenuItems(actions: actions) }
-        .onChange(of: joinSpan, initial: true) { _, span in model.join.span = span }
     }
 
-    // Where the selected row meets the VSCode window. Nil while the row and
+    // An equal share of the list for each tab, within the set widths. The
+    // add button takes 24 pt.
+    private func tabWidth(available: CGFloat) -> CGFloat {
+        let n = CGFloat(max(model.rows.count, 1))
+        let room = available - 2 * tabJoinRadius - 24 - rowSpacing * n
+        return min(max(room / n, minTabWidth), maxTabWidth)
+    }
+
+    // Where the selected tab meets the VSCode window. Nil while the tab and
     // its inner corners are scrolled out of the list.
     private var joinSpan: TabJoin.Span? {
         guard let tabFrame, let row = model.rows.first(where: { $0.id == model.activeId }),
-              tabFrame.maxY + tabJoinRadius > listFrame.minY, tabFrame.minY - tabJoinRadius < listFrame.maxY else { return nil }
-        return TabJoin.Span(top: tabFrame.minY, bottom: tabFrame.maxY, listTop: listFrame.minY, listBottom: listFrame.maxY,
+              tabFrame.maxX + tabJoinRadius > listFrame.minX, tabFrame.minX - tabJoinRadius < listFrame.maxX else { return nil }
+        return TabJoin.Span(left: tabFrame.minX, right: tabFrame.maxX, listLeft: listFrame.minX, listRight: listFrame.maxX,
                             color: tabColor(row.window, focused: model.focused))
     }
 
     @ViewBuilder
-    private func rowView(_ row: Row) -> some View {
+    private func rowView(_ row: Row, width: CGFloat) -> some View {
         let active = row.id == model.activeId
         let item = RowView(
             row: row,
             tab: active ? tabColor(row.window, focused: model.focused) : nil,
             color: row.window.empty ? nil : rowColor(settings.colors[row.key]),
             // An empty window has no saved place or color, so it stays a
-            // normal row while the settings are open.
+            // normal tab while the settings are open.
             editing: model.settingsOpen && !row.window.empty,
             colorName: Binding(
                 get: { settings.colors[row.key] },
                 set: { settings.colors[row.key] = $0 }
             ),
-            onPick: { actions.pick(row) }
+            onPick: { actions.pick(row) },
+            showTip: { tip in
+                // A hide only for this tab's own tip: the next tab's can already show.
+                if let tip { model.tip = tip } else if model.tip?.rowId == row.id { model.tip = nil }
+            }
         )
+        .frame(width: width, height: barHeight - tabTop)
         .background {
             if active {
                 GeometryReader { g in
@@ -715,7 +718,7 @@ struct BarView: View {
                 }
             }
         }
-        // A row's menu replaces the bar's menu. It has only the row's items.
+        // A tab's menu replaces the bar's menu. It has only the tab's items.
         .contextMenu {
             if row.asleep {
                 Button("Wake Window") { actions.pick(row) }
@@ -743,36 +746,6 @@ struct BarView: View {
     }
 }
 
-// Under the rows: opens a new, empty VSCode window. The plus is in the
-// status dot's column, and the text is in line with the window names.
-struct AddWindowButton: View {
-    let action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 7) {
-                Image(systemName: "plus")
-                    .font(.system(size: 10, weight: .semibold))
-                    .frame(width: 12, height: 15)
-                Text("Add window")
-                    .font(.system(size: 12))
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(hovering ? Color.primary : Color.secondary)
-            .padding(.vertical, 5)
-            .padding(.leading, rowLeading)
-            .padding(.trailing, 6)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(hovering ? 0.06 : 0)))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        .cursor(.pointingHand)
-        .help("Open a new VSCode window. Then pick a folder on its Welcome page.")
-    }
-}
-
 // The bar's right-click menu.
 struct BarMenuItems: View {
     let actions: BarActions
@@ -793,7 +766,7 @@ struct WindowButtons: View {
     @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 9) {
+        HStack(spacing: 8) {
             Button(action: close) { light(0xFF5F57, "xmark") }
                 .help("Close the bar. VSCode windows stay open.")
             Button(action: minimize) { light(0xFEBC2E, "minus") }
@@ -806,11 +779,11 @@ struct WindowButtons: View {
     private func light(_ hex: Int, _ symbol: String) -> some View {
         Circle()
             .fill(Color(nsColor: hexColor(hex)))
-            .frame(width: 14, height: 14)
+            .frame(width: 12, height: 12)
             .overlay {
                 if hovering {
                     Image(systemName: symbol)
-                        .font(.system(size: 9, weight: .black))
+                        .font(.system(size: 8, weight: .black))
                         .foregroundStyle(Color.black.opacity(0.65))
                 }
             }
@@ -884,8 +857,8 @@ struct RowIconButtonStyle: ButtonStyle {
     }
 }
 
-// Solid bar color in the gaps outside VSCode's rounded left corners.
-// The selected row goes on over the VSCode window's 1 pt border, so it
+// Solid bar color in the gaps outside VSCode's rounded top corners.
+// The selected tab goes on over the VSCode window's 1 pt border, so it
 // looks like part of the window. Its inner corners join that border.
 struct CornerPieces: View {
     let radius: CGFloat
@@ -893,18 +866,18 @@ struct CornerPieces: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            VStack(spacing: 0) {
-                CornerPiece(top: true).frame(width: radius, height: radius)
+            HStack(spacing: 0) {
+                CornerPiece(left: true).frame(width: radius, height: radius)
                 Spacer(minLength: 0)
-                CornerPiece(top: false).frame(width: radius, height: radius)
+                CornerPiece(left: false).frame(width: radius, height: radius)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             if let span = join.span {
                 Canvas { ctx, size in
-                    // Only where the row shows in the list, like in the bar.
-                    ctx.clip(to: Path(CGRect(x: 0, y: span.listTop, width: size.width, height: span.listBottom - span.listTop)))
-                    // The row's rect ends at the window's edge, x = 0 here.
-                    let rect = CGRect(x: -100, y: span.top, width: 100, height: span.bottom - span.top)
+                    // Only where the tab shows in the list, like in the bar.
+                    ctx.clip(to: Path(CGRect(x: span.listLeft, y: 0, width: span.listRight - span.listLeft, height: size.height)))
+                    // The tab's rect ends at the window's edge, y = 0 here.
+                    let rect = CGRect(x: span.left, y: -100, width: span.right - span.left, height: 100)
                     ctx.fill(TabShape(fill: true).path(in: rect), with: .color(Color(nsColor: hexColor(span.color))))
                     ctx.stroke(TabShape().path(in: rect), with: .color(borderColor), lineWidth: 1)
                 }
@@ -916,19 +889,35 @@ struct CornerPieces: View {
 // A square minus a quarter circle: the gap outside one rounded corner.
 // A line on its outer edge joins the bar's border to VSCode's.
 struct CornerPiece: View {
-    let top: Bool
+    let left: Bool
 
     var body: some View {
         Canvas { ctx, size in
             let square = CGRect(origin: .zero, size: size)
-            // The corner's circle center is inside the VSCode window, to the right.
-            let circle = CGRect(x: 0, y: top ? 0 : -size.height, width: size.width * 2, height: size.height * 2)
+            // The corner's circle center is inside the VSCode window, below.
+            let circle = CGRect(x: left ? 0 : -size.width, y: 0, width: size.width * 2, height: size.height * 2)
             var path = Path(square)
             path.addEllipse(in: circle)
             ctx.clip(to: Path(square))
             ctx.fill(path, with: .color(barColor), style: FillStyle(eoFill: true))
-            ctx.fill(Path(CGRect(x: 0, y: top ? 0 : size.height - 1, width: size.width, height: 1)), with: .color(borderColor))
+            ctx.fill(Path(CGRect(x: left ? 0 : size.width - 1, y: 0, width: 1, height: size.height)), with: .color(borderColor))
         }
+    }
+}
+
+// The tab tip: a small dark box with the window's details.
+struct TipView: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 11))
+            .foregroundStyle(Color.primary)
+            .fixedSize()
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 6).fill(barColor))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(borderColor, lineWidth: 1))
     }
 }
 

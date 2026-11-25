@@ -6,7 +6,7 @@ import ApplicationServices
 let vscodeBundleId = "com.microsoft.VSCode"
 // Corner radius of a macOS window (measured on macOS 26). The bar uses it for
 // its own corners, and for the solid pieces that fill the gaps outside VS
-// Code's rounded left corners, next to the bar. Not used to place windows.
+// Code's rounded top corners, under the bar. Not used to place windows.
 let windowRadius: CGFloat = 16
 
 enum VSCodeWindows {
@@ -59,8 +59,8 @@ enum VSCodeWindows {
     }
 
     // The front VSCode window next to the bar. AX lists windows front to back.
-    static func frontArranged(_ app: NSRunningApplication, width: CGFloat) -> AXUIElement? {
-        windows(app).first { isArranged($0, width: width) }
+    static func frontArranged(_ app: NSRunningApplication, height: CGFloat) -> AXUIElement? {
+        windows(app).first { isArranged($0, height: height) }
     }
 
     // True if VSCode is in front and this window has the keyboard focus.
@@ -72,8 +72,8 @@ enum VSCodeWindows {
     }
 
     // True if the window fills the place next to the bar.
-    static func isArranged(_ ax: AXUIElement, width: CGFloat) -> Bool {
-        guard let r = targetFrame(width: width), let f = frame(ax) else { return false }
+    static func isArranged(_ ax: AXUIElement, height: CGFloat) -> Bool {
+        guard let r = targetFrame(height: height), let f = frame(ax) else { return false }
         return abs(f.minX - r.minX) < 2 && abs(f.minY - r.minY) < 2
             && abs(f.width - r.width) < 2 && abs(f.height - r.height) < 2
     }
@@ -136,8 +136,8 @@ enum VSCodeWindows {
     static var screenId: String?
 
     // Where the bar and the VSCode windows are, as one group, in AX
-    // coordinates (top-left origin of the main screen). The bar is on the
-    // left and the windows fill the rest. nil: all of the bar's screen.
+    // coordinates (top-left origin of the main screen). The bar is on top
+    // and the windows fill the rest. nil: all of the bar's screen.
     static var group: CGRect?
 
     // Cocoa coordinates (bottom-left origin) to AX coordinates, and back.
@@ -162,16 +162,16 @@ enum VSCodeWindows {
     }
 
     // The group minus the bar, in AX coordinates.
-    static func targetFrame(width: CGFloat) -> CGRect? {
+    static func targetFrame(height: CGFloat) -> CGRect? {
         guard let g = groupFrame else { return nil }
-        return CGRect(x: g.minX + width, y: g.minY, width: g.width - width, height: g.height)
+        return CGRect(x: g.minX, y: g.minY + height, width: g.width, height: g.height - height)
     }
 
     // Bar frame, in Cocoa coordinates (bottom-left origin). group: another
     // group frame, for example while the user drags a window.
-    static func barFrame(width: CGFloat, group: CGRect? = nil) -> NSRect {
-        guard let g = group ?? groupFrame else { return NSRect(x: 0, y: 0, width: width, height: 600) }
-        return flip(CGRect(x: g.minX, y: g.minY, width: width, height: g.height))
+    static func barFrame(height: CGFloat, group: CGRect? = nil) -> NSRect {
+        guard let g = group ?? groupFrame else { return NSRect(x: 0, y: 0, width: 800, height: height) }
+        return flip(CGRect(x: g.minX, y: g.minY, width: g.width, height: height))
     }
 
     // The screen with this point on it. AX coordinates.
@@ -263,16 +263,19 @@ enum VSCodeWindows {
         return f.minX <= sf.minX + 1 && f.minY <= sf.minY + 1 && f.maxX >= sf.maxX - 1 && f.maxY >= sf.maxY - 1
     }
 
-    // Strip just right of the bar, where the corner pieces go. Cocoa coordinates.
-    static func cornerFrame(width: CGFloat, group: CGRect? = nil) -> NSRect {
-        let bar = barFrame(width: width, group: group)
-        return NSRect(x: bar.maxX, y: bar.minY, width: windowRadius, height: bar.height)
+    // Strip just under the bar, where the corner pieces go. Cocoa coordinates.
+    static func cornerFrame(height: CGFloat, group: CGRect? = nil) -> NSRect {
+        cornerFrame(bar: barFrame(height: height, group: group))
+    }
+
+    static func cornerFrame(bar: NSRect) -> NSRect {
+        NSRect(x: bar.minX, y: bar.minY - windowRadius, width: bar.width, height: windowRadius)
     }
 
     // Box over the window buttons of a window next to the bar. Cocoa coordinates.
     // The 3 pt margin stays clear of the window's rounded corner and border.
-    static func coverFrame(width: CGFloat, buttons: CGRect) -> NSRect? {
-        guard let target = targetFrame(width: width) else { return nil }
+    static func coverFrame(height: CGFloat, buttons: CGRect) -> NSRect? {
+        guard let target = targetFrame(height: height) else { return nil }
         return flip(buttons.offsetBy(dx: target.minX, dy: target.minY).insetBy(dx: -3, dy: -3))
     }
 
@@ -300,8 +303,8 @@ enum VSCodeWindows {
     }
 
     // restore: false leaves a minimized window minimized.
-    static func place(_ ax: AXUIElement, width: CGFloat, restore: Bool = true) {
-        guard let r = targetFrame(width: width) else { return }
+    static func place(_ ax: AXUIElement, height: CGFloat, restore: Bool = true) {
+        guard let r = targetFrame(height: height) else { return }
         if isFullScreen(ax) { return }
         if isMinimized(ax) {
             guard restore else { return }
@@ -382,9 +385,9 @@ enum VSCodeWindows {
         app()?.hide()
     }
 
-    static func arrangeAll(width: CGFloat) {
+    static func arrangeAll(height: CGFloat) {
         guard let app = app() else { return }
-        for ax in windows(app) { place(ax, width: width, restore: false) }
+        for ax in windows(app) { place(ax, height: height, restore: false) }
     }
 
     // Bring VSCode to the front with its last active window.
@@ -396,9 +399,9 @@ enum VSCodeWindows {
         return app
     }
 
-    // Size the window next to the bar and bring it to the front.
-    static func focus(_ ax: AXUIElement, width: CGFloat) {
-        place(ax, width: width)
+    // Size the window under the bar and bring it to the front.
+    static func focus(_ ax: AXUIElement, height: CGFloat) {
+        place(ax, height: height)
         AXUIElementSetAttributeValue(ax, kAXMainAttribute as CFString, kCFBooleanTrue)
         AXUIElementPerformAction(ax, kAXRaiseAction as CFString)
         activateApp()
